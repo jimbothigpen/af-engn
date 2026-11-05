@@ -421,6 +421,28 @@ static __device__ __forceinline__ void dequantize_iq4_nl(const void * vx, const 
 }
 
 template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq4_k(const void * vx, const int64_t ibs, dst_t * yy, const int tid) {
+    const int values[32] = {
+        -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+        -123, -100, -79, -61, -45, -31, -18, -6, 5, 17, 29, 42, 57, 73, 93, 117
+    };
+    const block_iq4_k & x = ((const block_iq4_k *) vx)[ibs];
+    const float d = __half2float(x.d);
+    for (int j = tid; j < QK_K; j += 32) {
+        const int group = j / 32;
+        const int half = (j % 32) / 16;
+        const int lane = j % 16;
+        const int high = (x.scales_h[group / 2] >> (4 * (group % 2))) & 15;
+        const int low = (x.scales_l[group] >> (4 * half)) & 15;
+        const int scale = (low | (((high >> (2 * half)) & 3) << 4)) - 32;
+        const int table = ((x.extra >> (2 * group + half)) & 1) * 16;
+        const int code = (x.qs[16 * group + lane] >> (4 * half)) & 15;
+        const float dl = d * scale;
+        yy[j] = ggml_cuda_cast<dst_t>(dl * values[table + code]);
+    }
+}
+
+template<typename dst_t>
 static __device__ __forceinline__ void dequantize_iq4_xs(const void * vx, const int64_t ibs, dst_t * yy, const int tid) {
     const block_iq4_xs * x = (const block_iq4_xs *)vx;
 

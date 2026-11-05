@@ -1801,6 +1801,44 @@ struct block_iq4_xs_packed32
 #define A_TYPE_PACKED32 block_iq4_xs_packed32
 #endif
 
+#define QUANT_K_IQ4_K 256
+#define QUANT_R_IQ4_K 1
+
+struct block_iq4_k
+{
+    float16_t d;
+    uint16_t extra;
+    uint8_t scales_h[4];
+    uint8_t scales_l[8];
+    uint8_t qs[128];
+};
+
+struct block_iq4_k_packed16
+{
+    float16_t d;
+    uint16_t extra;
+    uint16_t scales_h[2];
+    uint16_t scales_l[4];
+    uint16_t qs[64];
+};
+
+struct block_iq4_k_packed32
+{
+    float16_t d;
+    uint16_t extra;
+    uint32_t scales_h;
+    uint32_t scales_l[2];
+    uint32_t qs[32];
+};
+
+#if defined(DATA_A_IQ4_K)
+#define QUANT_K QUANT_K_IQ4_K
+#define QUANT_R QUANT_R_IQ4_K
+#define A_TYPE block_iq4_k
+#define A_TYPE_PACKED16 block_iq4_k_packed16
+#define A_TYPE_PACKED32 block_iq4_k_packed32
+#endif
+
 #define QUANT_K_IQ4_NL 32
 #define QUANT_R_IQ4_NL 2
 

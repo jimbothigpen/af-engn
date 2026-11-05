@@ -755,3 +755,42 @@ vec2 get_dm(uint ib, uint a_offset) {
     return vec2(1, 0);
 }
 #endif
+
+
+#if defined(DATA_A_IQ4_K)
+const float kvalues_iq4_k[32] = float[32](
+    -12.0, -10.0, -8.0, -6.0, -5.0, -4.0, -3.0, -2.0,
+    -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0,
+    -7.0, -6.0, -5.0, -4.0, -3.0, -2.5, -2.0, -1.5,
+    -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5
+);
+
+vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+    const uint ib32 = iqs / 32;
+    const uint ihalf = ib32 / 4;
+    const uint ib16 = ib32 % 4;
+
+    uint sc_u = uint(data_a[a_offset + ib].scales_l[ib32]);
+    const uint hbits = (uint(data_a[a_offset + ib].scales_h[ihalf * 2 + (ib16 / 2)]) >> ((ib16 % 2) * 4)) & 0x0f;
+    sc_u |= (hbits << 8);
+
+    const int sc = int(sc_u) - 2048;
+    const float scale = float(sc) * 0.125;
+    const float d = float(data_a[a_offset + ib].d);
+    const float dscale = d * scale;
+
+    const uint q_idx = (iqs / 2);
+    const uint b = (iqs % 2);
+    const uint byte_val = uint(data_a[a_offset + ib].qs[q_idx]);
+    const uint val = (b == 0) ? (byte_val & 0x0f) : (byte_val >> 4);
+
+    const uint page = (ihalf == 0) ? 0 : 16;
+    const float v0 = dscale * kvalues_iq4_k[page + val];
+
+    return vec2(v0, 0.0);
+}
+
+vec2 get_dm(uint ib, uint a_offset) {
+    return vec2(1, 0);
+}
+#endif
