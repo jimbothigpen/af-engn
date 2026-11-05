@@ -23,6 +23,39 @@
 
 #define UNUSED GGML_UNUSED
 
+void ggml_vec_dot_iq4_k_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    static const int8_t values[32] = {
+        -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+        -123, -100, -79, -61, -45, -31, -18, -6, 5, 17, 29, 42, 57, 73, 93, 117,
+    };
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(bs);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(nrc);
+    const block_iq4_k * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+    float sum = 0.0f;
+    for (int i = 0; i < n / QK_K; ++i) {
+        int32_t isum = 0;
+        for (int group = 0; group < 8; ++group) {
+            const int high = (x[i].scales_h[group / 2] >> (4 * (group % 2))) & 15;
+            for (int half = 0; half < 2; ++half) {
+                const int low = (x[i].scales_l[group] >> (4 * half)) & 15;
+                const int scale = (low | (((high >> (2 * half)) & 3) << 4)) - 32;
+                const int table = ((x[i].extra >> (2 * group + half)) & 1) * 16;
+                for (int lane = 0; lane < 16; ++lane) {
+                    const int code = (x[i].qs[16 * group + lane] >> (4 * half)) & 15;
+                    isum += scale * values[table + code] * y[i].qs[32 * group + 16 * half + lane];
+                }
+            }
+        }
+        sum += (GGML_FP16_TO_FP32(x[i].d) * y[i].d) * isum;
+    }
+    *s = sum;
+}
+
 void quantize_row_q1_0(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
     quantize_row_q1_0_ref(x, y, k);
 }

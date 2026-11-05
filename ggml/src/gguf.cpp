@@ -636,11 +636,21 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
         }
     }
 
+    const int af_engn_version_idx = gguf_find_key(ctx, "af_engn.format_version");
+    const bool af_engn_dialect = af_engn_version_idx != -1;
+    if (af_engn_dialect &&
+        (gguf_get_kv_type(ctx, af_engn_version_idx) != GGUF_TYPE_UINT32 ||
+         gguf_get_val_u32(ctx, af_engn_version_idx) != 1)) {
+        GGML_LOG_ERROR("%s: unsupported af_engn.format_version; expected UINT32 1\n", __func__);
+        gguf_free(ctx);
+        return nullptr;
+    }
+
     // read the tensor info
     std::unordered_set<std::string> seen_tensor_names;
 
     for (int64_t i = 0; ok && i < n_tensors; ++i) {
-        struct gguf_tensor_info info;
+        struct gguf_tensor_info info = {};
 
         // tensor name
         {
@@ -724,12 +734,20 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
 
         // tensor type
         {
-            ok = ok && gr.read(info.t.type);
-
-            // check that tensor type is within defined range
-            if (info.t.type < 0 || info.t.type >= GGML_TYPE_COUNT) {
-                GGML_LOG_ERROR("%s: tensor '%s' has invalid ggml type %d. should be in [0, %d)\n",
-                    __func__, info.t.name, info.t.type, GGML_TYPE_COUNT);
+            uint32_t wire_type = UINT32_MAX;
+            ok = ok && gr.read(wire_type);
+            if (!ok) {
+                break;
+            }
+            if (wire_type == 1024 && af_engn_dialect) {
+                info.t.type = GGML_TYPE_IQ4_K;
+            } else if (wire_type < 44 && wire_type != 4 && wire_type != 5 &&
+                       !(wire_type >= 31 && wire_type <= 33) &&
+                       !(wire_type >= 36 && wire_type <= 38)) {
+                info.t.type = static_cast<ggml_type>(wire_type);
+            } else {
+                GGML_LOG_ERROR("%s: tensor '%s' has unsupported wire type %" PRIu32 " or missing af-engn dialect\n",
+                    __func__, info.t.name, wire_type);
                 ok = false;
                 break;
             }
@@ -1550,7 +1568,8 @@ struct gguf_writer_base {
         for (uint32_t j = 0; j < n_dims; ++j) {
             write(info.t.ne[j]);
         }
-        write(info.t.type);
+        const uint32_t wire_type = info.t.type == GGML_TYPE_IQ4_K ? 1024 : static_cast<uint32_t>(info.t.type);
+        write(wire_type);
         write(info.offset);
     }
 
@@ -1669,8 +1688,23 @@ struct gguf_writer_file final : public gguf_writer_base {
 
 template <typename writer_t>
 static void gguf_write_out(const struct gguf_context * ctx, writer_t & gw, bool only_meta) {
-    const int64_t n_kv      = gguf_get_n_kv(ctx);
     const int64_t n_tensors = gguf_get_n_tensors(ctx);
+    bool has_custom = false;
+    for (const auto & info : ctx->info) {
+        if (info.t.type == GGML_TYPE_IQ4_K) {
+            has_custom = true;
+        } else if (info.t.type < 0 || info.t.type >= GGML_TYPE_COUNT || ggml_type_size(info.t.type) == 0) {
+            throw std::runtime_error("unsupported runtime tensor type");
+        }
+    }
+    const int version_idx = gguf_find_key(ctx, "af_engn.format_version");
+    if (version_idx != -1 &&
+        (gguf_get_kv_type(ctx, version_idx) != GGUF_TYPE_UINT32 ||
+         gguf_get_val_u32(ctx, version_idx) != 1)) {
+        throw std::runtime_error("unsupported af_engn.format_version; expected UINT32 1");
+    }
+    const bool add_version = has_custom && version_idx == -1;
+    const int64_t n_kv = gguf_get_n_kv(ctx) + (add_version ? 1 : 0);
 
     // write header
     gw.write(GGUF_MAGIC[0]);
@@ -1682,8 +1716,11 @@ static void gguf_write_out(const struct gguf_context * ctx, writer_t & gw, bool 
     gw.write(n_kv);
 
     // write key-value pairs
-    for (int64_t i = 0; i < n_kv; ++i) {
-        gw.write(ctx->kv[i]);
+    for (const auto & kv : ctx->kv) {
+        gw.write(kv);
+    }
+    if (add_version) {
+        gw.write(gguf_kv("af_engn.format_version", uint32_t(1)));
     }
 
     // write tensor info
