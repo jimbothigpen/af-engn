@@ -1,0 +1,38 @@
+#version 450
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) readonly buffer A {block_iq4_k data_a[];};
+layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
+
+const int values[16] = int[16](
+    -127, -104, -83, -65, -49, -35, -22, -10,
+    1, 13, 25, 38, 53, 69, 89, 113
+);
+
+void main() {
+    const uint ib = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x / 8;
+    if (ib >= p.nel / 256) {
+        return;
+    }
+
+    const uint group = gl_LocalInvocationID.x % 8;
+    const uint high = (uint(data_a[ib].scales_h[group / 2]) >> (4 * (group & 1))) & 15;
+    const uint low = uint(data_a[ib].scales_l[group]);
+    const int scale0 = int((low & 15) | ((high & 3) << 4)) - 32;
+    const int scale1 = int((low >> 4) | ((high >> 2) << 4)) - 32;
+    const float d = float(data_a[ib].d);
+    const float dl0 = d * float(scale0);
+    const float dl1 = d * float(scale1);
+    const int extra0 = 4 * int((uint(data_a[ib].extra) >> (2 * group)) & 1);
+    const int extra1 = 4 * int((uint(data_a[ib].extra) >> (2 * group + 1)) & 1);
+    const uint b_idx = 256 * ib + 32 * group;
+    const uint q_idx = 16 * group;
+    [[unroll]] for (uint lane = 0; lane < 16; ++lane) {
+        const uint q = uint(data_a[ib].qs[q_idx + lane]);
+        data_b[b_idx + lane] = D_TYPE(dl0 * float(values[q & 15] + extra0));
+        data_b[b_idx + lane + 16] = D_TYPE(dl1 * float(values[q >> 4] + extra1));
+    }
+}
