@@ -10101,7 +10101,8 @@ static const ggml_type base_types[] = {
     GGML_TYPE_Q4_K,
     GGML_TYPE_MXFP4, GGML_TYPE_NVFP4, // TODO: or "other"
     GGML_TYPE_F8_E4M3,
-    GGML_TYPE_IQ2_XXS
+    GGML_TYPE_IQ2_XXS,
+    GGML_TYPE_IQ4_K
 };
 
 static const ggml_type other_types[] = {
