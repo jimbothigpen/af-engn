@@ -2756,6 +2756,33 @@ void dequantize_row_iq4_nl(const block_iq4_nl * GGML_RESTRICT x, float * GGML_RE
     }
 }
 
+void dequantize_row_iq2_k(const block_iq2_k * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+assert(k % QK_K == 0);
+const int64_t nb = k / QK_K;
+static const int8_t iq2nl_values[8] = { -31, -13, 1, 17, -26, -8, 6, 22 };
+
+for (int i = 0; i < nb; i++) {
+const float d = GGML_FP16_TO_FP32(x[i].d);
+const uint8_t * qs = x[i].qs;
+uint16_t extra = x[i].extra;
+int shift = 0;
+for (int ib32 = 0; ib32 < QK_K/32; ++ib32) {
+float dl1 = d * ((x[i].scales[ib32] & 0xf) - 8);
+float dl2 = d * ((x[i].scales[ib32] >> 4) - 8);
+const int8_t * values1 = extra & 1 ? iq2nl_values + 4 : iq2nl_values;
+const int8_t * values2 = extra & 2 ? iq2nl_values + 4 : iq2nl_values;
+extra >>= 2;
+for (int j = 0; j < 16; ++j) {
+y[j + 0]  = dl1 * values1[(qs[j + 0] >> shift) & 3];
+y[j + 16] = dl2 * values2[(qs[j + 16] >> shift) & 3];
+}
+y += 32;
+shift += 2;
+if (shift == 8) { qs += 32; shift = 0; }
+}
+}
+}
+
 void dequantize_row_iq4_k(const block_iq4_k * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     static const int8_t values[32] = {
         -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,

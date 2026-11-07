@@ -784,3 +784,28 @@ vec2 get_dm(uint ib, uint a_offset) {
     return vec2(1, 0);
 }
 #endif
+
+#if defined(DATA_A_IQ2_K)
+const int kvalues_iq2_k[8] = int[8](
+    -31, -13, 1, 17, -26, -8, 6, 22
+);
+
+vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+    const uint ib32 = iqs / 32;
+    const uint hf = (iqs / 16) & 1;
+    const uint lane = iqs & 15;
+    const int scale = int((hf == 0 ? (uint(data_a[a_offset + ib].scales[ib32]) & 0xf) : (uint(data_a[a_offset + ib].scales[ib32]) >> 4))) - 8;
+    const uint table = (((uint(data_a[a_offset + ib].extra) >> (2 * ib32 + hf)) & 1) != 0) ? 4 : 0;
+    const uint qs_base = (ib32 < 4 ? 0 : 32) + (hf == 0 ? lane : 16 + lane);
+    const uint shift = 2 * (ib32 % 4);
+    const uint code0 = (uint(data_a[a_offset + ib].qs[qs_base]) >> shift) & 3;
+    const uint code1 = (uint(data_a[a_offset + ib].qs[qs_base + 1]) >> shift) & 3;
+    const float dscale = float(data_a[a_offset + ib].d) * float(scale);
+
+    return dscale * vec2(kvalues_iq2_k[table + code0], kvalues_iq2_k[table + code1]);
+}
+
+vec2 get_dm(uint ib, uint a_offset) {
+    return vec2(1, 0);
+}
+#endif

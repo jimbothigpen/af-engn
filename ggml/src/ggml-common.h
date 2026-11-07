@@ -376,6 +376,14 @@ uint8_t  qs[QK_K/2];
 } block_iq4_k;
 static_assert(sizeof(block_iq4_k) == sizeof(ggml_half) + sizeof(uint16_t) + QK_K/2 + 3*QK_K/64, "wrong iq4_k block size/padding");
 
+typedef struct {
+    ggml_half d;
+    uint16_t extra;
+    uint8_t  scales[QK_K/32];
+    uint8_t  qs[QK_K/4];
+} block_iq2_k;
+static_assert(sizeof(block_iq2_k) == sizeof(ggml_half) + sizeof(uint16_t) + QK_K/32 + QK_K/4, "wrong iq2_k block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

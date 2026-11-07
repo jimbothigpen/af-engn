@@ -3,6 +3,7 @@
 #define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "ggml-iq4-k-encoder.h"
+#include "ggml-iq2-k-encoder.h"
 
 #include "ggml.h"
 
@@ -76,6 +77,7 @@ GGML_API void dequantize_row_iq1_s  (const block_iq1_s   * GGML_RESTRICT x, floa
 GGML_API void dequantize_row_iq1_m  (const block_iq1_m   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq4_nl (const block_iq4_nl  * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq4_k  (const block_iq4_k   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_iq2_k  (const block_iq2_k   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq4_xs (const block_iq4_xs  * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq3_s  (const block_iq3_s   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 

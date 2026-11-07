@@ -56,6 +56,44 @@ void ggml_vec_dot_iq4_k_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const vo
     *s = sum;
 }
 
+void ggml_vec_dot_iq2_k_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+static const int8_t iq2nl_values[8] = { -31, -13, 1, 17, -26, -8, 6, 22 };
+assert(n % QK_K == 0);
+assert(nrc == 1);
+UNUSED(bs);
+UNUSED(bx);
+UNUSED(by);
+UNUSED(nrc);
+const block_iq2_k * GGML_RESTRICT x = vx;
+const block_q8_K * GGML_RESTRICT y = vy;
+float sum = 0.0f;
+for (int i = 0; i < n / QK_K; ++i) {
+float d   = GGML_FP16_TO_FP32(x[i].d);
+float dy  = y[i].d;
+float isum = 0.0f;
+const uint8_t * qs = x[i].qs;
+uint16_t extra = x[i].extra;
+int shift = 0;
+for (int ib32 = 0; ib32 < QK_K/32; ++ib32) {
+const int s1 = (x[i].scales[ib32] & 0xf) - 8;
+const int s2 = (x[i].scales[ib32] >> 4) - 8;
+const int8_t * values1 = extra & 1 ? iq2nl_values + 4 : iq2nl_values;
+const int8_t * values2 = extra & 2 ? iq2nl_values + 4 : iq2nl_values;
+extra >>= 2;
+for (int j = 0; j < 16; ++j) {
+int c1 = (qs[j + 0]  >> shift) & 3;
+int c2 = (qs[j + 16] >> shift) & 3;
+isum += d*dy * ( (float)s1*values1[c1]*y[i].qs[32*ib32 + j] +
+                 (float)s2*values2[c2]*y[i].qs[32*ib32 + 16 + j] );
+}
+shift += 2;
+if (shift == 8) { qs += 32; shift = 0; }
+}
+sum += isum;
+}
+*s = sum;
+}
+
 void quantize_row_q1_0(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
     quantize_row_q1_0_ref(x, y, k);
 }
