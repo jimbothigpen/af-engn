@@ -94,6 +94,50 @@ sum += isum;
 *s = sum;
 }
 
+void ggml_vec_dot_iq3_k_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+static const int8_t iq3nl_values[16] = {
+    -63, -40, -23, -10,  1, 13, 28, 47,
+    -59, -36, -19,  -6,  5, 17, 32, 51
+};
+assert(n % QK_K == 0);
+assert(nrc == 1);
+UNUSED(bs);
+UNUSED(bx);
+UNUSED(by);
+UNUSED(nrc);
+const block_iq3_k * GGML_RESTRICT x = vx;
+const block_q8_K * GGML_RESTRICT y = vy;
+float sum = 0.0f;
+for (int i = 0; i < n / QK_K; ++i) {
+    float d   = GGML_FP16_TO_FP32(x[i].d);
+    float dy  = y[i].d;
+    float isum = 0.0f;
+    const uint8_t * qs = x[i].qs;
+    const uint8_t * qh = x[i].qh;
+    uint16_t sh = x[i].scales_h;
+    uint16_t extra = x[i].extra;
+    for (int ib32 = 0; ib32 < QK_K/32; ++ib32) {
+        float dl1 = d * ((2*(x[i].scales_l[ib32] & 0xf) + 1) * ((sh & 1) ? -1 : 1));
+        float dl2 = d * ((2*(x[i].scales_l[ib32] >>  4) + 1) * ((sh & 2) ? -1 : 1));
+        sh >>= 2;
+        const int8_t * values1 = extra & 1 ? iq3nl_values + 8 : iq3nl_values;
+        const int8_t * values2 = extra & 2 ? iq3nl_values + 8 : iq3nl_values;
+        extra >>= 2;
+        int shift_l = 2*(ib32%4);
+        int shift_h = ib32%8;
+        for (int j = 0; j < 16; ++j) {
+            int c1 = ((qs[j +  0] >> shift_l) & 3) | (((qh[j +  0] >> shift_h) & 1) << 2);
+            int c2 = ((qs[j + 16] >> shift_l) & 3) | (((qh[j + 16] >> shift_h) & 1) << 2);
+            isum += dy * ( dl1 * values1[c1] * y[i].qs[32*ib32 + j] +
+                           dl2 * values2[c2] * y[i].qs[32*ib32 + 16 + j] );
+        }
+        if (shift_l == 6) qs += 32;
+    }
+    sum += isum;
+}
+*s = sum;
+}
+
 void quantize_row_q1_0(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
     quantize_row_q1_0_ref(x, y, k);
 }

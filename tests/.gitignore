@@ -8,3 +8,4 @@ ggml-common.h
 **/*.swp
 !peg-parser
 !iq2_k/
+!iq3_k/

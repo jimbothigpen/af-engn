@@ -463,6 +463,25 @@ static __device__ __forceinline__ void dequantize_iq2_k(const void * vx, const i
 }
 
 template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq3_k(const void * vx, const int64_t ibs, dst_t * yy, const int tid) {
+    const int8_t values[16] = { -63, -40, -23, -10, 1, 13, 28, 47, -59, -36, -19, -6, 5, 17, 32, 51 };
+    const block_iq3_k & x = ((const block_iq3_k *) vx)[ibs];
+    const float d = __half2float(x.d);
+
+    for (int j = tid; j < QK_K; j += 32) {
+        const int ib32 = j / 32;
+        const int half = (j % 32) / 16;
+        const int lane = j % 16;
+        const int raw = half == 0 ? (x.scales_l[ib32] & 0xf) : (x.scales_l[ib32] >> 4);
+        const int scale = (2 * raw + 1) * (((x.scales_h >> (2 * ib32 + half)) & 1) ? -1 : 1);
+        const int val_offset = ((x.extra >> (2 * ib32 + half)) & 1) ? 8 : 0;
+        const int off = (ib32 < 4 ? 0 : 32) + 16 * half + lane;
+        const int code = ((x.qs[off] >> (2 * (ib32 % 4))) & 3) | (((x.qh[16 * half + lane] >> ib32) & 1) << 2);
+        yy[j] = ggml_cuda_cast<dst_t>(d * scale * values[val_offset + code]);
+    }
+}
+
+template<typename dst_t>
 static __device__ __forceinline__ void dequantize_iq4_xs(const void * vx, const int64_t ibs, dst_t * yy, const int tid) {
     const block_iq4_xs * x = (const block_iq4_xs *)vx;
 

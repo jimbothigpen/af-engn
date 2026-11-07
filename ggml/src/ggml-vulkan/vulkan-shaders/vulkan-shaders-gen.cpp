@@ -71,6 +71,7 @@ const std::vector<std::string> type_names = {
     "iq4_xs",
     "iq4_k",
     "iq2_k",
+    "iq3_k",
     "iq4_nl",
     "mxfp4",
     "nvfp4",
@@ -241,7 +242,7 @@ bool is_legacy_quant(const std::string& type_name) {
 }
 
 bool is_k_quant(const std::string& type_name) {
-    return type_name != "iq4_k" && type_name != "iq2_k" && string_ends_with(type_name, "_k");
+    return type_name != "iq4_k" && type_name != "iq2_k" && type_name != "iq3_k" && string_ends_with(type_name, "_k");
 }
 
 bool is_iq_quant(const std::string& type_name) {
@@ -598,7 +599,7 @@ void matmul_shaders(bool fp16, MatMulIdType matmul_id_type, bool coopmat, bool c
     }
 
     for (const auto& tname : type_names) {
-        if (tname == "bf16" || tname == "iq4_k" || tname == "iq2_k") {
+        if (tname == "bf16" || tname == "iq4_k" || tname == "iq2_k" || tname == "iq3_k") {
             continue;
         }
 
@@ -1351,12 +1352,12 @@ void write_output_files() {
 
     for (const std::string& btype : btypes) {
     for (const auto& tname : type_names) {
-        if (btype == "q8_1" && (tname == "iq4_k" || tname == "iq2_k" || (!is_legacy_quant(tname) && tname != "mxfp4" && !is_k_quant(tname) && tname != "iq1_s" && tname != "iq1_m" && tname != "iq4_xs"))) {
+        if (btype == "q8_1" && (tname == "iq4_k" || tname == "iq2_k" || tname == "iq3_k" || (!is_legacy_quant(tname) && tname != "mxfp4" && !is_k_quant(tname) && tname != "iq1_s" && tname != "iq1_m" && tname != "iq4_xs"))) {
             continue;
         }
         hdr << "extern const void * arr_dmmv_"   << tname << "_" << btype << "_f32_data[3];\n";
         hdr << "extern const uint64_t arr_dmmv_" << tname << "_" << btype << "_f32_len[3];\n";
-        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq4_k" && tname != "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k")) {
+        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq4_k" && tname != "iq2_k" && tname != "iq3_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq3_k.comp" && tname == "iq3_k")) {
             src << "const void * arr_dmmv_"   << tname << "_" << btype << "_f32_data[3] = {mul_mat_vec_" << tname << "_" << btype << "_f32_data, mul_mat_vec_" << tname << "_" << btype << "_f32_subgroup_data, mul_mat_vec_" << tname << "_" << btype << "_f32_subgroup_no_shmem_data};\n";
             src << "const uint64_t arr_dmmv_" << tname << "_" << btype << "_f32_len[3] =  {mul_mat_vec_" << tname << "_" << btype << "_f32_len,  mul_mat_vec_" << tname << "_" << btype << "_f32_subgroup_len, mul_mat_vec_"  << tname << "_" << btype << "_f32_subgroup_no_shmem_len};\n";
         }
@@ -1366,7 +1367,7 @@ void write_output_files() {
         }
         hdr << "extern const void * arr_dmmv_id_"   << tname << "_" << btype << "_f32_data[3];\n";
         hdr << "extern const uint64_t arr_dmmv_id_" << tname << "_" << btype << "_f32_len[3];\n";
-        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq4_k" && tname != "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k")) {
+        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq4_k" && tname != "iq2_k" && tname != "iq3_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq3_k.comp" && tname == "iq3_k")) {
             src << "const void * arr_dmmv_id_"   << tname << "_" << btype << "_f32_data[3] = {mul_mat_vec_id_" << tname << "_" << btype << "_f32_data, mul_mat_vec_id_" << tname << "_" << btype << "_f32_subgroup_data, mul_mat_vec_id_" << tname << "_" << btype << "_f32_subgroup_no_shmem_data};\n";
             src << "const uint64_t arr_dmmv_id_" << tname << "_" << btype << "_f32_len[3] =  {mul_mat_vec_id_" << tname << "_" << btype << "_f32_len,  mul_mat_vec_id_" << tname << "_" << btype << "_f32_subgroup_len, mul_mat_vec_id_"  << tname << "_" << btype << "_f32_subgroup_no_shmem_len};\n";
         }

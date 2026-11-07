@@ -743,6 +743,8 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
                 info.t.type = GGML_TYPE_IQ4_K;
             } else if (wire_type == 1025 && af_engn_dialect) {
                 info.t.type = GGML_TYPE_IQ2_K;
+            } else if (wire_type == 1026 && af_engn_dialect) {
+                info.t.type = GGML_TYPE_IQ3_K;
             } else if (wire_type < 44 && wire_type != 4 && wire_type != 5 &&
                        !(wire_type >= 31 && wire_type <= 33) &&
                        !(wire_type >= 36 && wire_type <= 38)) {
@@ -1572,6 +1574,7 @@ struct gguf_writer_base {
         }
         const uint32_t wire_type = info.t.type == GGML_TYPE_IQ4_K ? 1024 :
                                   info.t.type == GGML_TYPE_IQ2_K ? 1025 :
+                                  info.t.type == GGML_TYPE_IQ3_K ? 1026 :
                                   static_cast<uint32_t>(info.t.type);
         write(wire_type);
         write(info.offset);
