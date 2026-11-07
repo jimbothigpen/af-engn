@@ -368,6 +368,9 @@ if (APPLE)
 endif()
 
 if (NOT GGML_BACKEND_DL AND GGML_CPU)
+# IQ2_K CPU unit test (CARD 5.2 / 5.3): needs internal ggml headers
+llama_build_and_test(iq2_k/test_cpu.cpp NAME test-iq2-k-cpu LABEL "main behavior" LINK ggml)
+target_include_directories(test-iq2-k-cpu PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src ${PROJECT_SOURCE_DIR}/ggml/src/ggml-cpu)
     # these tests use the backends directly and cannot be built with dynamic loading
     llama_build_and_test(test-barrier.cpp  LABEL "main behavior"  LINK ggml)
     llama_build_and_test(test-quantize-fns.cpp  LABEL "main behavior"  LINK ggml)

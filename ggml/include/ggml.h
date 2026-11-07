@@ -434,7 +434,9 @@ extern "C" {
         GGML_TYPE_Q2_0    = 42,
         GGML_TYPE_F8_E4M3 = 43,
         GGML_TYPE_IQ4_K   = 44,
-        GGML_TYPE_COUNT   = 45,
+        GGML_TYPE_IQ2_K   = 45,
+
+        GGML_TYPE_COUNT   = 46,
     };
 
     // [TAG_GGML_PREC]

@@ -1886,7 +1886,7 @@ static void ggml_cuda_mul_mat_cublas(ggml_backend_cuda_context & ctx, const ggml
     // F16 is the only compute type that can not satisfy a request for BF16
     if (prec == GGML_PREC_BF16 && compute_type == GGML_TYPE_F16) {
         compute_type = fast_bf16_hardware_available(cc) ? GGML_TYPE_BF16 : GGML_TYPE_F32;
-    } else if (prec == GGML_PREC_F32 || (src0->type == GGML_TYPE_IQ4_K && prec == GGML_PREC_UNDEFINED)) {
+    } else if (prec == GGML_PREC_F32 || ((src0->type == GGML_TYPE_IQ4_K || src0->type == GGML_TYPE_IQ2_K) && prec == GGML_PREC_UNDEFINED)) {
         compute_type = GGML_TYPE_F32;
     }
 
@@ -6022,6 +6022,7 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
                     case GGML_TYPE_IQ4_NL:
                     case GGML_TYPE_IQ4_XS:
                     case GGML_TYPE_IQ4_K:
+                    case GGML_TYPE_IQ2_K:
                     case GGML_TYPE_BF16:
                         return true;
                     default:
@@ -6058,6 +6059,7 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
                     case GGML_TYPE_IQ1_M:
                     case GGML_TYPE_IQ4_XS:
                     case GGML_TYPE_IQ4_K:
+                    case GGML_TYPE_IQ2_K:
                         return true;
                     case GGML_TYPE_IQ4_NL:
                     case GGML_TYPE_MXFP4:

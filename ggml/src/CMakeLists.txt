@@ -208,6 +208,8 @@ add_library(ggml-base
             ggml-quants.h
             ggml-iq4-k-encoder.cpp
             ggml-iq4-k-encoder.h
+            ggml-iq2-k-encoder.cpp
+            ggml-iq2-k-encoder.h
             gguf.cpp)
 
 set_target_properties(ggml-base PROPERTIES
