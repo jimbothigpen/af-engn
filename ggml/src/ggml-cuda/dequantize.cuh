@@ -463,6 +463,72 @@ static __device__ __forceinline__ void dequantize_iq2_k(const void * vx, const i
 }
 
 template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq5_k(const void * vx, const int64_t ibs, dst_t * yy, const int tid) {
+    const int8_t values[64] = {
+        -126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6, -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+        -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,  1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123,
+    };
+    const block_iq5_k & x = ((const block_iq5_k *) vx)[ibs];
+    const float d = __half2float(x.d);
+
+    for (int j = tid; j < QK_K; j += 32) {
+        const int ib64 = j / 64;
+        const int sub16 = (j % 64) / 16;
+        const int lane = j % 16;
+        const uint8_t sh = x.scales_h[ib64];
+        const uint8_t sl = x.scales_l[2*ib64 + sub16/2];
+        const int raw_l = (sub16 % 2 == 0) ? (sl & 0xf) : (sl >> 4);
+        const int raw_h = (sub16 == 0) ? ((sh << 4) & 0x30) :
+                          (sub16 == 1) ? ((sh << 2) & 0x30) :
+                          (sub16 == 2) ? ((sh     ) & 0x30) :
+                                         ((sh >> 2) & 0x30);
+        const int scale = (raw_l | raw_h) - 32;
+        const int val_offset = ((x.extra >> (4 * ib64 + sub16)) & 1) ? 32 : 0;
+        const int qs_idx = 32 * ib64 + (sub16 % 2 == 0 ? lane : 16 + lane);
+        const int qh_idx = (sub16 % 2 == 0 ? lane : 16 + lane);
+        const int shift_qh = 2 * ib64;
+        const int low4 = (sub16 < 2) ? (x.qs[qs_idx] & 0xf) : (x.qs[qs_idx] >> 4);
+        const int high1 = (sub16 < 2) ? ((x.qh[qh_idx] >> shift_qh) & 1) : (((x.qh[qh_idx] >> shift_qh) & 2) >> 1);
+        const int code = low4 | (high1 << 4);
+        yy[j] = ggml_cuda_cast<dst_t>(d * scale * values[val_offset + code]);
+    }
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq6_k(const void * vx, const int64_t ibs, dst_t * yy, const int tid) {
+    const int8_t values[128] = {
+        -127, -121, -115, -109, -104,  -98,  -93,  -88,  -84,  -79,  -74,  -70,  -66,  -62,  -58,  -54,
+         -51,  -47,  -44,  -40,  -37,  -34,  -31,  -28,  -25,  -22,  -19,  -16,  -13,  -11,   -8,   -5,
+          -2,    0,    3,    6,    9,   12,   14,   17,   20,   23,   27,   30,   33,   36,   40,   44,
+          47,   51,   55,   59,   63,   68,   72,   77,   82,   87,   92,   98,  103,  109,  115,  121,
+        -126, -120, -114, -108, -103,  -97,  -92,  -87,  -83,  -78,  -73,  -69,  -65,  -61,  -57,  -53,
+         -50,  -46,  -43,  -39,  -36,  -33,  -30,  -27,  -24,  -21,  -18,  -15,  -12,  -10,   -7,   -4,
+          -1,    1,    4,    7,   10,   13,   15,   18,   21,   24,   28,   31,   34,   37,   41,   45,
+          48,   52,   56,   60,   64,   69,   73,   78,   83,   88,   93,   99,  104,  110,  116,  122,
+    };
+    const block_iq6_k & x = ((const block_iq6_k *) vx)[ibs];
+    const float d = __half2float(x.d);
+
+    for (int j = tid; j < QK_K; j += 32) {
+        const int ib64 = j / 64;
+        const int quarter = (j % 64) / 16;
+        const int lane = j % 16;
+        const float dl = d * (float)x.scales[4*ib64 + quarter];
+        const int val_offset = ((x.extra >> (4*ib64 + quarter)) & 1) ? 64 : 0;
+        const int use_upper = quarter >> 1;
+        const int qs_base = 32*ib64 + (quarter & 1)*16 + lane;
+        const int qh_base = (ib64 >> 1)*32 + (quarter & 1)*16 + lane;
+        const int qh_shift = (ib64 & 1)*4;
+        const uint8_t qs = x.qs[qs_base];
+        const uint8_t qh = x.qh[qh_base];
+        const int code = use_upper ?
+            ((qs >> 4) | (((qh >> qh_shift) & 0x0c) << 2)) :
+            ((qs & 0xf) | (((qh >> qh_shift) & 0x03) << 4));
+        yy[j] = ggml_cuda_cast<dst_t>(dl * values[val_offset + code]);
+    }
+}
+
+template<typename dst_t>
 static __device__ __forceinline__ void dequantize_iq3_k(const void * vx, const int64_t ibs, dst_t * yy, const int tid) {
     const int8_t values[16] = { -63, -40, -23, -10, 1, 13, 28, 47, -59, -36, -19, -6, 5, 17, 32, 51 };
     const block_iq3_k & x = ((const block_iq3_k *) vx)[ibs];

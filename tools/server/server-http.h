@@ -62,6 +62,17 @@ struct server_http_req {
         }
         return def;
     }
+
+    std::string get_header(const std::string & key, const std::string & def = "") const {
+        for (const auto & [h_key, h_val] : headers) {
+            if (h_key.size() == key.size() &&
+                std::equal(h_key.begin(), h_key.end(), key.begin(),
+                           [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); })) {
+                return h_val;
+            }
+        }
+        return def;
+    }
 };
 
 struct server_http_context {

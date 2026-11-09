@@ -1,0 +1,57 @@
+#version 450
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) readonly buffer A {block_iq6_k data_a[];};
+layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
+
+const int kvalues_iq6_k[128] = int[128](
+    -127, -121, -115, -109, -104,  -98,  -93,  -88,  -84,  -79,  -74,  -70,  -66,  -62,  -58,  -54,
+     -51,  -47,  -44,  -40,  -37,  -34,  -31,  -28,  -25,  -22,  -19,  -16,  -13,  -11,   -8,   -5,
+      -2,    0,    3,    6,    9,   12,   14,   17,   20,   23,   27,   30,   33,   36,   40,   44,
+      47,   51,   55,   59,   63,   68,   72,   77,   82,   87,   92,   98,  103,  109,  115,  121,
+    -126, -120, -114, -108, -103,  -97,  -92,  -87,  -83,  -78,  -73,  -69,  -65,  -61,  -57,  -53,
+     -50,  -46,  -43,  -39,  -36,  -33,  -30,  -27,  -24,  -21,  -18,  -15,  -12,  -10,   -7,   -4,
+      -1,    1,    4,    7,   10,   13,   15,   18,   21,   24,   28,   31,   34,   37,   41,   45,
+      48,   52,   56,   60,   64,   69,   73,   78,   83,   88,   93,   99,  104,  110,  116,  122
+);
+
+void main() {
+    const uint ib = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x / 8;
+    if (ib >= p.nel / 256) {
+        return;
+    }
+
+    const uint ib32 = gl_LocalInvocationID.x % 8;
+    const uint ib64 = ib32 / 2;
+    const uint hf = ib32 % 2;
+    const uint sub_base = 2 * hf;
+    const float d = float(data_a[ib].d);
+    const uint extra = uint(data_a[ib].extra);
+    const float dl0 = d * float(int(data_a[ib].scales[4 * ib64 + sub_base + 0]));
+    const float dl1 = d * float(int(data_a[ib].scales[4 * ib64 + sub_base + 1]));
+    const uint table0 = (((extra >> (4 * ib64 + sub_base + 0)) & 1) != 0) ? 64 : 0;
+    const uint table1 = (((extra >> (4 * ib64 + sub_base + 1)) & 1) != 0) ? 64 : 0;
+    const uint qs_base = 32 * ib64;
+    const uint qh_base = 32 * (ib64 / 2);
+    const uint qh_shift = 4 * (ib64 % 2);
+    const uint b_idx = 256 * ib + 32 * ib32;
+
+    if (hf == 0) {
+        [[unroll]] for (uint lane = 0; lane < 16; ++lane) {
+            const uint code0 = (uint(data_a[ib].qs[qs_base + lane]) & 0xf) | (((uint(data_a[ib].qh[qh_base + lane]) >> qh_shift) & 0x03) << 4);
+            const uint code1 = (uint(data_a[ib].qs[qs_base + 16 + lane]) & 0xf) | (((uint(data_a[ib].qh[qh_base + 16 + lane]) >> qh_shift) & 0x03) << 4);
+            data_b[b_idx + lane]      = D_TYPE(dl0 * float(kvalues_iq6_k[table0 + code0]));
+            data_b[b_idx + 16 + lane] = D_TYPE(dl1 * float(kvalues_iq6_k[table1 + code1]));
+        }
+    } else {
+        [[unroll]] for (uint lane = 0; lane < 16; ++lane) {
+            const uint code0 = (uint(data_a[ib].qs[qs_base + lane]) >> 4) | (((uint(data_a[ib].qh[qh_base + lane]) >> qh_shift) & 0x0c) << 2);
+            const uint code1 = (uint(data_a[ib].qs[qs_base + 16 + lane]) >> 4) | (((uint(data_a[ib].qh[qh_base + 16 + lane]) >> qh_shift) & 0x0c) << 2);
+            data_b[b_idx + lane]      = D_TYPE(dl0 * float(kvalues_iq6_k[table0 + code0]));
+            data_b[b_idx + 16 + lane] = D_TYPE(dl1 * float(kvalues_iq6_k[table1 + code1]));
+        }
+    }
+}

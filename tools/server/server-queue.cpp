@@ -34,11 +34,18 @@ int server_queue::post(server_task && task, bool front) {
     }
     const int  task_id     = task.id;
     const bool reset_timer = task_resets_idle_timer(task.type);
-    QUE_DBG("new task, id = %d, front = %d\n", task_id, front);
+    QUE_DBG("new task, id = %d, front = %d, priority = %d\n", task_id, front, task.priority);
     if (front) {
         queue_tasks.push_front(std::move(task));
     } else {
-        queue_tasks.push_back(std::move(task));
+        // Priority queuing: lower number = higher priority (0-9).
+        // Insert before the first task with lower priority (strictly greater priority value).
+        // This ensures stable FIFO ordering within identical priorities.
+        auto it = std::upper_bound(queue_tasks.begin(), queue_tasks.end(), task.priority,
+            [](int p, const server_task & t) {
+                return p < t.priority;
+            });
+        queue_tasks.insert(it, std::move(task));
     }
     if (reset_timer) {
         time_last_task = ggml_time_ms();
@@ -59,11 +66,15 @@ int server_queue::post(std::vector<server_task> && tasks, bool front) {
             cleanup_pending_task(task.id_target);
         }
         reset_timer |= task_resets_idle_timer(task.type);
-        QUE_DBG("new task, id = %d/%d, front = %d\n", task.id, (int) tasks.size(), front);
+        QUE_DBG("new task, id = %d/%d, front = %d, priority = %d\n", task.id, (int) tasks.size(), front, task.priority);
         if (front) {
             queue_tasks.push_front(std::move(task));
         } else {
-            queue_tasks.push_back(std::move(task));
+            auto it = std::upper_bound(queue_tasks.begin(), queue_tasks.end(), task.priority,
+                [](int p, const server_task & t) {
+                    return p < t.priority;
+                });
+            queue_tasks.insert(it, std::move(task));
         }
     }
     if (reset_timer) {
@@ -75,8 +86,12 @@ int server_queue::post(std::vector<server_task> && tasks, bool front) {
 
 void server_queue::defer(server_task && task) {
     std::unique_lock<std::mutex> lock(mutex_tasks);
-    QUE_DBG("defer task, id = %d\n", task.id);
-    queue_tasks_deferred.push_back(std::move(task));
+    QUE_DBG("defer task, id = %d, priority = %d\n", task.id, task.priority);
+    auto it = std::upper_bound(queue_tasks_deferred.begin(), queue_tasks_deferred.end(), task.priority,
+        [](int p, const server_task & t) {
+            return p < t.priority;
+        });
+    queue_tasks_deferred.insert(it, std::move(task));
     time_last_task = ggml_time_ms();
     condition_tasks.notify_one();
 }
