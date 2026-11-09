@@ -335,6 +335,9 @@ struct server_slot {
 
     std::string stopping_word;
 
+    // AF-ENGN: Slot pinning (prevent eviction/reuse by unrelated tasks)
+    bool is_pinned = false;
+
     // state
     slot_state state = SLOT_STATE_IDLE;
 
@@ -816,6 +819,7 @@ struct server_slot {
             {"n_ctx",         n_ctx},
             {"speculative",   can_speculate()},
             {"is_processing", is_processing()},
+            {"is_pinned",     is_pinned},
         };
 
         const auto & ptask = task ? task : task_prev;
@@ -1783,6 +1787,9 @@ private:
         return nullptr;
     }
 
+    // session_id to slot_id affinity mapping
+    std::unordered_map<std::string, int> session_slot_map;
+
     server_slot * get_slot_by_cmpl_id(const std::string & cmpl_id) {
         if (cmpl_id.empty()) {
             return nullptr;
@@ -1802,16 +1809,25 @@ private:
 
         bool update_cache = false;
 
-        // if a specific slot is requested, use it (still goes through cache update logic below)
-        if (task.id_slot != -1) {
-            ret = get_slot_by_id(task.id_slot);
+        // check session_id affinity if slot was not explicitly set
+        int target_slot_id = task.id_slot;
+        if (target_slot_id == -1 && !task.params.oaicompat_cmpl_id.empty()) {
+            auto it = session_slot_map.find(task.params.oaicompat_cmpl_id);
+            if (it != session_slot_map.end()) {
+                target_slot_id = it->second;
+            }
+        }
+
+        // if a specific slot is requested or affinity matched, use it (still goes through cache update logic below)
+        if (target_slot_id != -1) {
+            ret = get_slot_by_id(target_slot_id);
             if (ret) {
                 // a busy slot is returned untouched, the caller defers the task
                 if (ret->is_processing()) {
                     return ret;
                 }
 
-                SLT_INF(*ret, "selected slot by id (%d)\n", task.id_slot);
+                SLT_INF(*ret, "selected slot by id/affinity (%d)\n", target_slot_id);
             }
         }
 
@@ -1825,8 +1841,8 @@ private:
                 }
 
                 // skip the slot if it is not available
-                if (slot.is_processing()) {
-                    SLT_TRC(slot, " - skipping, is_processing = %d\n", slot.is_processing());
+                if (slot.is_processing() || (slot.is_pinned && task.id_slot != slot.id)) {
+                    SLT_TRC(slot, " - skipping, is_processing = %d, is_pinned = %d\n", slot.is_processing(), slot.is_pinned);
                     continue;
                 }
 
@@ -1881,6 +1897,10 @@ private:
         }
 
         if (ret) {
+            if (!task.params.oaicompat_cmpl_id.empty()) {
+                session_slot_map[task.params.oaicompat_cmpl_id] = ret->id;
+            }
+
             update_cache = update_cache && prompt_cache;
 
             // cache prompts only for the tasks that reuse them
@@ -2656,7 +2676,7 @@ private:
     std::vector<server_slot *> get_free_slots(size_t n_slots_needed, int exclude_id_slot) {
         std::vector<server_slot *> free_slots;
         for (auto & slot : slots) {
-            if (!slot.is_processing() && slot.id != exclude_id_slot) {
+            if (!slot.is_processing() && slot.id != exclude_id_slot && !slot.is_pinned) {
                 free_slots.push_back(&slot);
             }
         }
@@ -3377,6 +3397,87 @@ private:
                     res->id       = task.id;
                     res->id_slot  = id_slot;
                     res->n_erased = n_erased;
+                    queue_results.send(std::move(res));
+                } break;
+            case SERVER_TASK_TYPE_SLOT_PIN:
+                {
+                    const int id_slot = task.slot_action.id_slot;
+                    server_slot * slot = get_slot_by_id(id_slot);
+                    if (slot == nullptr) {
+                        send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
+                        break;
+                    }
+                    slot->is_pinned = true;
+                    auto res = std::make_unique<server_task_result_slot_pin>();
+                    res->id        = task.id;
+                    res->id_slot   = id_slot;
+                    res->is_pinned = true;
+                    queue_results.send(std::move(res));
+                } break;
+            case SERVER_TASK_TYPE_SLOT_UNPIN:
+                {
+                    const int id_slot = task.slot_action.id_slot;
+                    server_slot * slot = get_slot_by_id(id_slot);
+                    if (slot == nullptr) {
+                        send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
+                        break;
+                    }
+                    slot->is_pinned = false;
+                    auto res = std::make_unique<server_task_result_slot_pin>();
+                    res->id        = task.id;
+                    res->id_slot   = id_slot;
+                    res->is_pinned = false;
+                    queue_results.send(std::move(res));
+                } break;
+            case SERVER_TASK_TYPE_SLOT_TRUNCATE:
+                {
+                    const int id_slot = task.slot_action.id_slot;
+                    server_slot * slot = get_slot_by_id(id_slot);
+                    if (slot == nullptr) {
+                        send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
+                        break;
+                    }
+                    if (slot->is_processing()) {
+                        SRV_DBG("requested slot is unavailable, defer task, id_task = %d\n", task.id);
+                        queue_tasks.defer(std::move(task));
+                        break;
+                    }
+
+                    if (ctx_tgt_seq_rm_type != COMMON_CONTEXT_SEQ_RM_TYPE_PART) {
+                        send_error(task, "Slot KV truncation is unsupported for recurrent or hybrid-memory models", ERROR_TYPE_INVALID_REQUEST);
+                        break;
+                    }
+
+                    int32_t p0 = task.slot_action.truncate_start_pos;
+                    int32_t p1 = task.slot_action.truncate_end_pos;
+                    const int32_t n_tokens_before = slot->prompt.tokens.size();
+
+                    if (p0 < 0) p0 = 0;
+                    if (p1 < 0 || p1 > n_tokens_before) p1 = n_tokens_before;
+
+                    if (p0 < p1) {
+                        // remove tokens in [p0, p1) from KV cache
+                        slot->mem.seq_rm(slot->id, p0, p1);
+                        // shift tokens after p1 down to p0
+                        const int32_t delta = p0 - p1;
+                        if (p1 < n_tokens_before) {
+                            slot->mem.seq_add(slot->id, p1, n_tokens_before, delta);
+                        }
+
+                        // update in-memory prompt tokens representation
+                        llama_tokens old_toks = slot->prompt.tokens.get_tokens();
+                        if ((size_t) p1 <= old_toks.size()) {
+                            old_toks.erase(old_toks.begin() + p0, old_toks.begin() + p1);
+                            slot->prompt.tokens = server_tokens(old_toks, false);
+                        }
+                    }
+
+                    auto res = std::make_unique<server_task_result_slot_truncate>();
+                    res->id          = task.id;
+                    res->id_slot     = id_slot;
+                    res->start_pos   = p0;
+                    res->end_pos     = p1;
+                    res->n_remaining = slot->prompt.tokens.size();
                     queue_results.send(std::move(res));
                 } break;
             case SERVER_TASK_TYPE_GET_LORA:
@@ -5308,8 +5409,13 @@ struct server_res_generator : server_res_spipe {
         data = safe_json_to_str(response_data);
     }
     void error(const json & error_data) {
-        status = json_value(error_data, "code", 500);
-        data = safe_json_to_str({{ "error", error_data }});
+        if (error_data.contains("error") && error_data["error"].is_object() && error_data["error"].contains("code")) {
+            status = json_value(error_data["error"], "code", 500);
+            data = safe_json_to_str(error_data);
+        } else {
+            status = json_value(error_data, "code", 500);
+            data = safe_json_to_str({{ "error", error_data }});
+        }
     }
 };
 
@@ -5374,10 +5480,32 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
 
         // tasks.reserve(inputs.size()); // TODO: this is inaccurate due to child tasks
 
+        int task_priority = 5;
+        if (data.contains("priority") && data["priority"].is_number_integer()) {
+            task_priority = std::clamp(data["priority"].get<int>(), 0, 9);
+        } else {
+            std::string prio_hdr = req.get_header("X-AF-Priority");
+            if (!prio_hdr.empty()) {
+                try {
+                    task_priority = std::clamp(std::stoi(prio_hdr), 0, 9);
+                } catch (...) {}
+            }
+        }
+
+        // Session ID affinity
+        std::string session_id = json_value(data, "session_id", std::string());
+        if (session_id.empty()) {
+            session_id = req.get_header("X-Session-ID");
+        }
+        if (session_id.empty()) {
+            session_id = completion_id;
+        }
+
         for (size_t i = 0; i < inputs.size(); i++) {
             server_task task = server_task(type);
 
             task.id = rd.get_new_id();
+            task.priority = task_priority;
 
             task.tokens = std::move(inputs[i]);
             task.params = server_schema::eval_llama_cmpl_schema(
@@ -5393,7 +5521,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
 
             // OAI-compat
             task.params.res_type          = res_type;
-            task.params.oaicompat_cmpl_id = completion_id;
+            task.params.oaicompat_cmpl_id = session_id;
             task.params.oaicompat_model   = meta->model_name;
 
             // prepare child tasks
@@ -5716,6 +5844,7 @@ static json get_res_props(const server_context_meta & meta, const common_params 
         { "build_info",                  meta.build_info },
         { "is_sleeping",                 is_sleeping },
         { "cors_proxy_enabled",          params.ui_mcp_proxy },
+        { "af_extensions",               json::array({"rerank_v1", "priority_queuing", "finish_reason_detail", "slot_pinning", "slot_truncate"}) },
     };
 
     if (!params.server_connect_code.empty()) {
@@ -5859,23 +5988,40 @@ void server_routes::init_routes() {
     };
 
     this->post_slots = [this](const server_http_req & req) {
-        auto res = create_response();
-        if (params.slot_save_path.empty()) {
-            res->error(format_error_response("This server does not support slots action. Start it with `--slot-save-path`", ERROR_TYPE_NOT_SUPPORTED));
-            return res;
-        }
-
         std::string id_slot_str = req.get_param("id_slot");
 
         int id_slot;
         try {
             id_slot = std::stoi(id_slot_str);
         } catch (const std::exception &) {
+            auto res = create_response();
+            res->error(format_error_response("Invalid slot ID", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        if (id_slot < 0 || id_slot >= (int) params.n_parallel) {
+            auto res = create_response();
             res->error(format_error_response("Invalid slot ID", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
 
         std::string action = req.get_param("action");
+
+        if (action == "pin") {
+            return handle_slots_pin(req, id_slot);
+        }
+        if (action == "unpin") {
+            return handle_slots_unpin(req, id_slot);
+        }
+        if (action == "truncate") {
+            return handle_slots_truncate(req, id_slot);
+        }
+
+        if (params.slot_save_path.empty()) {
+            auto res = create_response();
+            res->error(format_error_response("This server does not support slots action. Start it with `--slot-save-path`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
 
         if (action == "save") {
             return handle_slots_save(req, id_slot);
@@ -5887,6 +6033,7 @@ void server_routes::init_routes() {
             return handle_slots_erase(req, id_slot);
         }
 
+        auto res = create_response();
         res->error(format_error_response("Invalid action", ERROR_TYPE_INVALID_REQUEST));
         return res;
     };
@@ -6672,11 +6819,25 @@ void server_routes::init_routes() {
 
         // one task per variant of each question, or one task for all the questions
         auto & rd = res->rd;
+
+        int task_priority = 5;
+        if (body.contains("priority") && body["priority"].is_number_integer()) {
+            task_priority = std::clamp(body["priority"].get<int>(), 0, 9);
+        } else {
+            std::string prio_hdr = req.get_header("X-AF-Priority");
+            if (!prio_hdr.empty()) {
+                try {
+                    task_priority = std::clamp(std::stoi(prio_hdr), 0, 9);
+                } catch (...) {}
+            }
+        }
+
         {
             std::vector<server_task> tasks;
             if (decision.is_joint()) {
                 server_task task = server_task(SERVER_TASK_TYPE_DECISION);
                 task.id = rd.get_new_id();
+                task.priority = task_priority;
                 decision.fill_task_joint(state, questions, files, ctx_server.mctx, ctx_server.init_opt, task);
                 tasks.push_back(std::move(task));
             } else {
@@ -6684,6 +6845,7 @@ void server_routes::init_routes() {
                     for (size_t variant = 0; variant < decision.n_variants(question); variant++) {
                         server_task task = server_task(SERVER_TASK_TYPE_DECISION);
                         task.id = rd.get_new_id();
+                        task.priority = task_priority;
                         decision.fill_task(state, questions, question, variant, files, ctx_server.mctx, ctx_server.init_opt, task);
                         tasks.push_back(std::move(task));
                     }
@@ -6901,6 +7063,100 @@ std::unique_ptr<server_res_generator> server_routes::handle_slots_erase(const se
     return res;
 }
 
+std::unique_ptr<server_res_generator> server_routes::handle_slots_pin(const server_http_req & req, int id_slot) {
+    auto res = create_response();
+    auto & rd = res->rd;
+    {
+        server_task task(SERVER_TASK_TYPE_SLOT_PIN);
+        task.id = rd.get_new_id();
+        task.slot_action.id_slot = id_slot;
+        rd.post_task(std::move(task));
+    }
+
+    auto result = rd.next(req.should_stop);
+    if (!result) {
+        GGML_ASSERT(req.should_stop());
+        return res;
+    }
+
+    if (result->is_error()) {
+        res->error(result->to_json());
+        return res;
+    }
+
+    GGML_ASSERT(dynamic_cast<server_task_result_slot_pin*>(result.get()) != nullptr);
+    res->ok(result->to_json());
+    return res;
+}
+
+std::unique_ptr<server_res_generator> server_routes::handle_slots_unpin(const server_http_req & req, int id_slot) {
+    auto res = create_response();
+    auto & rd = res->rd;
+    {
+        server_task task(SERVER_TASK_TYPE_SLOT_UNPIN);
+        task.id = rd.get_new_id();
+        task.slot_action.id_slot = id_slot;
+        rd.post_task(std::move(task));
+    }
+
+    auto result = rd.next(req.should_stop);
+    if (!result) {
+        GGML_ASSERT(req.should_stop());
+        return res;
+    }
+
+    if (result->is_error()) {
+        res->error(result->to_json());
+        return res;
+    }
+
+    GGML_ASSERT(dynamic_cast<server_task_result_slot_pin*>(result.get()) != nullptr);
+    res->ok(result->to_json());
+    return res;
+}
+
+std::unique_ptr<server_res_generator> server_routes::handle_slots_truncate(const server_http_req & req, int id_slot) {
+    auto res = create_response();
+    auto & rd = res->rd;
+
+    int32_t start_pos = 0;
+    int32_t end_pos = -1;
+
+    if (!req.body.empty()) {
+        try {
+            json body = json::parse(req.body);
+            start_pos = json_value(body, "start_pos", 0);
+            end_pos   = json_value(body, "end_pos", -1);
+        } catch (...) {
+            // body parse optional / fallback to defaults
+        }
+    }
+
+    {
+        server_task task(SERVER_TASK_TYPE_SLOT_TRUNCATE);
+        task.id = rd.get_new_id();
+        task.slot_action.id_slot = id_slot;
+        task.slot_action.truncate_start_pos = start_pos;
+        task.slot_action.truncate_end_pos   = end_pos;
+        rd.post_task(std::move(task));
+    }
+
+    auto result = rd.next(req.should_stop);
+    if (!result) {
+        GGML_ASSERT(req.should_stop());
+        return res;
+    }
+
+    if (result->is_error()) {
+        res->error(result->to_json());
+        return res;
+    }
+
+    GGML_ASSERT(dynamic_cast<server_task_result_slot_truncate*>(result.get()) != nullptr);
+    res->ok(result->to_json());
+    return res;
+}
+
 std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(const server_http_req & req, task_response_type res_type) {
     auto res = create_response();
     if (!params.embedding) {
@@ -6979,12 +7235,26 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
     // create and queue the task
     json responses = json::array();
     auto & rd = res->rd;
+
+    int task_priority = 5;
+    if (body.contains("priority") && body["priority"].is_number_integer()) {
+        task_priority = std::clamp(body["priority"].get<int>(), 0, 9);
+    } else {
+        std::string prio_hdr = req.get_header("X-AF-Priority");
+        if (!prio_hdr.empty()) {
+            try {
+                task_priority = std::clamp(std::stoi(prio_hdr), 0, 9);
+            } catch (...) {}
+        }
+    }
+
     {
         std::vector<server_task> tasks;
         for (size_t i = 0; i < tokenized_prompts.size(); i++) {
             server_task task = server_task(SERVER_TASK_TYPE_EMBEDDING);
 
             task.id     = rd.get_new_id();
+            task.priority = task_priority;
             task.tokens = std::move(tokenized_prompts[i]);
 
             // OAI-compat
@@ -7126,14 +7396,28 @@ std::unique_ptr<server_res_generator> server_routes::handle_rerank_impl(const se
     // create and queue the task
     json responses = json::array();
     auto & rd = res->rd;
+
+    int task_priority = 5;
+    if (body.contains("priority") && body["priority"].is_number_integer()) {
+        task_priority = std::clamp(body["priority"].get<int>(), 0, 9);
+    } else {
+        std::string prio_hdr = req.get_header("X-AF-Priority");
+        if (!prio_hdr.empty()) {
+            try {
+                task_priority = std::clamp(std::stoi(prio_hdr), 0, 9);
+            } catch (...) {}
+        }
+    }
+
     {
         std::vector<server_task> tasks;
         tasks.reserve(documents.size());
         for (size_t i = 0; i < documents.size(); i++) {
             auto tmp = format_prompt_rerank(ctx_server.model_tgt, ctx_server.vocab, ctx_server.mctx, query_str, documents[i], query_files, document_files[i], ctx_server.init_opt);
             server_task task = server_task(SERVER_TASK_TYPE_RERANK);
-            task.id     = rd.get_new_id();
-            task.tokens = std::move(tmp);
+            task.id       = rd.get_new_id();
+            task.priority = task_priority;
+            task.tokens   = std::move(tmp);
             tasks.push_back(std::move(task));
         }
         rd.post_tasks(std::move(tasks));

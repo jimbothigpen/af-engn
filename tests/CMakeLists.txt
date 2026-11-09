@@ -373,6 +373,8 @@ llama_build_and_test(iq2_k/test_cpu.cpp NAME test-iq2-k-cpu LABEL "main behavior
 target_include_directories(test-iq2-k-cpu PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src ${PROJECT_SOURCE_DIR}/ggml/src/ggml-cpu)
 llama_build_and_test(iq3_k/test_cpu.cpp NAME test-iq3-k-cpu LABEL "main behavior" LINK ggml)
 target_include_directories(test-iq3-k-cpu PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src ${PROJECT_SOURCE_DIR}/ggml/src/ggml-cpu)
+llama_build_and_test(iq5_k/test_cpu.cpp NAME test-iq5-k-cpu LABEL "main behavior" LINK ggml)
+target_include_directories(test-iq5-k-cpu PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src ${PROJECT_SOURCE_DIR}/ggml/src/ggml-cpu)
     # these tests use the backends directly and cannot be built with dynamic loading
     llama_build_and_test(test-barrier.cpp  LABEL "main behavior"  LINK ggml)
     llama_build_and_test(test-quantize-fns.cpp  LABEL "main behavior"  LINK ggml)

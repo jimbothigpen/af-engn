@@ -836,3 +836,82 @@ vec2 get_dm(uint ib, uint a_offset) {
     return vec2(1, 0);
 }
 #endif
+
+#if defined(DATA_A_IQ5_K)
+const int kvalues_iq5_k[64] = int[64](
+    -126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6, -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+    -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,  1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123
+);
+
+vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+    const uint ib64 = iqs / 64;
+    const uint sub16 = (iqs % 64) / 16;
+    const uint lane = iqs % 16;
+    const uint sh = uint(data_a[a_offset + ib].scales_h[ib64]);
+    const uint sl = uint(data_a[a_offset + ib].scales_l[2*ib64 + sub16/2]);
+    const int raw_l = int((sub16 % 2 == 0) ? (sl & 0xf) : (sl >> 4));
+    const int raw_h = int((sub16 == 0) ? ((sh << 4) & 0x30) :
+                          (sub16 == 1) ? ((sh << 2) & 0x30) :
+                          (sub16 == 2) ? ((sh     ) & 0x30) :
+                                         ((sh >> 2) & 0x30));
+    const int scale = (raw_l | raw_h) - 32;
+    const uint table = (((uint(data_a[a_offset + ib].extra) >> (4 * ib64 + sub16)) & 1) != 0) ? 32 : 0;
+    const uint qs_base = 32 * ib64 + (sub16 % 2 == 0 ? lane : 16 + lane);
+    const uint qh_base = (sub16 % 2 == 0 ? lane : 16 + lane);
+    const uint shift = 2 * ib64;
+
+    const uint low4_0 = (sub16 < 2) ? (uint(data_a[a_offset + ib].qs[qs_base]) & 0xf) : (uint(data_a[a_offset + ib].qs[qs_base]) >> 4);
+    const uint high1_0 = (sub16 < 2) ? ((uint(data_a[a_offset + ib].qh[qh_base]) >> shift) & 1) : (((uint(data_a[a_offset + ib].qh[qh_base]) >> shift) & 2) >> 1);
+    const uint code0 = low4_0 | (high1_0 << 4);
+
+    const uint low4_1 = (sub16 < 2) ? (uint(data_a[a_offset + ib].qs[qs_base + 1]) & 0xf) : (uint(data_a[a_offset + ib].qs[qs_base + 1]) >> 4);
+    const uint high1_1 = (sub16 < 2) ? ((uint(data_a[a_offset + ib].qh[qh_base + 1]) >> shift) & 1) : (((uint(data_a[a_offset + ib].qh[qh_base + 1]) >> shift) & 2) >> 1);
+    const uint code1 = low4_1 | (high1_1 << 4);
+
+    const float dscale = float(data_a[a_offset + ib].d) * float(scale);
+    return dscale * vec2(kvalues_iq5_k[table + code0], kvalues_iq5_k[table + code1]);
+}
+
+vec2 get_dm(uint ib, uint a_offset) {
+    return vec2(1, 0);
+}
+#endif
+
+#if defined(DATA_A_IQ6_K)
+const int kvalues_iq6_k[128] = int[128](
+    -127, -121, -115, -109, -104,  -98,  -93,  -88,  -84,  -79,  -74,  -70,  -66,  -62,  -58,  -54,
+     -51,  -47,  -44,  -40,  -37,  -34,  -31,  -28,  -25,  -22,  -19,  -16,  -13,  -11,   -8,   -5,
+      -2,    0,    3,    6,    9,   12,   14,   17,   20,   23,   27,   30,   33,   36,   40,   44,
+      47,   51,   55,   59,   63,   68,   72,   77,   82,   87,   92,   98,  103,  109,  115,  121,
+    -126, -120, -114, -108, -103,  -97,  -92,  -87,  -83,  -78,  -73,  -69,  -65,  -61,  -57,  -53,
+     -50,  -46,  -43,  -39,  -36,  -33,  -30,  -27,  -24,  -21,  -18,  -15,  -12,  -10,   -7,   -4,
+      -1,    1,    4,    7,   10,   13,   15,   18,   21,   24,   28,   31,   34,   37,   41,   45,
+      48,   52,   56,   60,   64,   69,   73,   78,   83,   88,   93,   99,  104,  110,  116,  122
+);
+
+vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+    const uint ib64 = iqs / 64;
+    const uint sub16 = (iqs % 64) / 16;
+    const uint lane = iqs % 16;
+    const int scale = int(data_a[a_offset + ib].scales[4 * ib64 + sub16]);
+    const uint table = (((uint(data_a[a_offset + ib].extra) >> (4 * ib64 + sub16)) & 1) != 0) ? 64 : 0;
+    const uint qs_base = 32 * ib64 + (sub16 % 2 == 0 ? lane : 16 + lane);
+    const uint qh_base = 32 * (ib64 / 2) + (sub16 % 2 == 0 ? lane : 16 + lane);
+    const uint shift = 4 * (ib64 % 2);
+
+    const uint low4_0 = (sub16 < 2) ? (uint(data_a[a_offset + ib].qs[qs_base]) & 0xf) : (uint(data_a[a_offset + ib].qs[qs_base]) >> 4);
+    const uint high2_0 = (sub16 < 2) ? (((uint(data_a[a_offset + ib].qh[qh_base]) >> shift) & 0x03) << 4) : (((uint(data_a[a_offset + ib].qh[qh_base]) >> shift) & 0x0c) << 2);
+    const uint code0 = low4_0 | high2_0;
+
+    const uint low4_1 = (sub16 < 2) ? (uint(data_a[a_offset + ib].qs[qs_base + 1]) & 0xf) : (uint(data_a[a_offset + ib].qs[qs_base + 1]) >> 4);
+    const uint high2_1 = (sub16 < 2) ? (((uint(data_a[a_offset + ib].qh[qh_base + 1]) >> shift) & 0x03) << 4) : (((uint(data_a[a_offset + ib].qh[qh_base + 1]) >> shift) & 0x0c) << 2);
+    const uint code1 = low4_1 | high2_1;
+
+    const float dscale = float(data_a[a_offset + ib].d) * float(scale);
+    return dscale * vec2(kvalues_iq6_k[table + code0], kvalues_iq6_k[table + code1]);
+}
+
+vec2 get_dm(uint ib, uint a_offset) {
+    return vec2(1, 0);
+}
+#endif

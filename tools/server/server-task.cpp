@@ -354,11 +354,31 @@ json server_task_result_cmpl_final::to_json_non_oaicompat() {
     return response_fields.empty() ? res : json_get_nested_values(response_fields, res);
 }
 
+std::string server_task_result_cmpl_final::get_finish_reason_detail() const {
+    if (truncated) {
+        return "context_limit";
+    }
+    if (stop == STOP_TYPE_LIMIT) {
+        return "max_tokens";
+    }
+    if (stop == STOP_TYPE_EOS) {
+        if (!generation_params.sampling.grammar.empty()) {
+            return "grammar_eog";
+        }
+        return "stop_token";
+    }
+    if (stop == STOP_TYPE_WORD) {
+        return "stop_token";
+    }
+    return "stop_token";
+}
+
 json server_task_result_cmpl_final::usage_json_oaicompat() {
     return json {
         {"completion_tokens", n_decoded},
         {"prompt_tokens",     n_prompt_tokens},
         {"total_tokens",      n_decoded + n_prompt_tokens},
+        {"tokens_cached",     n_prompt_tokens_cache},
         {"prompt_tokens_details", json { {"cached_tokens", n_prompt_tokens_cache} }},
     };
 }
@@ -375,13 +395,15 @@ json server_task_result_cmpl_final::to_json_oaicompat() {
     if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS) {
         finish_reason = "stop";
     }
+    std::string finish_reason_detail = get_finish_reason_detail();
     json res = json {
         {"choices",            json::array({
             json{
-                {"text",          content.text},
-                {"index",         index},
-                {"logprobs",      logprobs},
-                {"finish_reason", finish_reason},
+                {"text",                 content.text},
+                {"index",                index},
+                {"logprobs",             logprobs},
+                {"finish_reason",        finish_reason},
+                {"finish_reason_detail", finish_reason_detail},
             }
         })},
         {"created",            t},
@@ -415,11 +437,13 @@ json server_task_result_cmpl_final::to_json_oaicompat_chat() {
     if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS) {
         finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
     }
+    std::string finish_reason_detail = get_finish_reason_detail();
 
     json choice {
-        {"finish_reason", finish_reason},
-        {"index", index},
-        {"message", msg.to_json_oaicompat()},
+        {"finish_reason",        finish_reason},
+        {"finish_reason_detail", finish_reason_detail},
+        {"index",                index},
+        {"message",              msg.to_json_oaicompat()},
     };
 
     if (!stream && probs_output.size() > 0) {
@@ -457,13 +481,15 @@ json server_task_result_cmpl_final::to_json_oaicompat_chat_stream() {
     if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS) {
         finish_reason = oaicompat_msg.tool_calls.empty() ? "stop" : "tool_calls";
     }
+    std::string finish_reason_detail = get_finish_reason_detail();
 
     json deltas = json::array();
     for (const auto & diff : oaicompat_msg_diffs) {
         deltas.push_back({
             {"choices", json::array({
                 json {
-                    {"finish_reason", nullptr},
+                    {"finish_reason",        nullptr},
+                    {"finish_reason_detail", nullptr},
                     {"index", index},
                     {"delta", server_chat_msg_diff_to_json_oaicompat(diff)},
                 },
@@ -479,7 +505,8 @@ json server_task_result_cmpl_final::to_json_oaicompat_chat_stream() {
     deltas.push_back({
         {"choices", json::array({
             json {
-                {"finish_reason", finish_reason},
+                {"finish_reason",        finish_reason},
+                {"finish_reason_detail", finish_reason_detail},
                 {"index", index},
                 {"delta", json::object()},
             },
@@ -578,9 +605,10 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp() {
         {"output",       output},
         {"status",       "completed"},
         {"usage",        json {
-            {"input_tokens",  n_prompt_tokens},
-            {"output_tokens", n_decoded},
-            {"total_tokens",  n_decoded + n_prompt_tokens},
+            {"input_tokens",         n_prompt_tokens},
+            {"output_tokens",        n_decoded},
+            {"total_tokens",         n_decoded + n_prompt_tokens},
+            {"tokens_cached",        n_prompt_tokens_cache},
             {"input_tokens_details", json { {"cached_tokens", n_prompt_tokens_cache} }},
         }},
     };
@@ -700,9 +728,10 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
                 {"model",      oaicompat_model},
                 {"output",     output},
                 {"usage",      json {
-                    {"input_tokens",  n_prompt_tokens},
-                    {"output_tokens", n_decoded},
-                    {"total_tokens",  n_decoded + n_prompt_tokens},
+                    {"input_tokens",         n_prompt_tokens},
+                    {"output_tokens",        n_decoded},
+                    {"total_tokens",         n_decoded + n_prompt_tokens},
+                    {"tokens_cached",        n_prompt_tokens_cache},
                     {"input_tokens_details", json { {"cached_tokens", n_prompt_tokens_cache} }},
                 }}
             }},
@@ -1695,6 +1724,28 @@ json server_task_result_slot_erase::to_json() {
     return json {
         { "id_slot",  id_slot },
         { "n_erased", n_erased },
+    };
+}
+
+//
+// server_task_result_slot_pin
+//
+json server_task_result_slot_pin::to_json() {
+    return json {
+        { "id_slot",   id_slot },
+        { "is_pinned", is_pinned },
+    };
+}
+
+//
+// server_task_result_slot_truncate
+//
+json server_task_result_slot_truncate::to_json() {
+    return json {
+        { "id_slot",     id_slot },
+        { "start_pos",   start_pos },
+        { "end_pos",     end_pos },
+        { "n_remaining", n_remaining },
     };
 }
 

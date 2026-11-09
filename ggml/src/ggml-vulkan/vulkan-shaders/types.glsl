@@ -1916,6 +1916,85 @@ struct block_iq3_k_packed32
 #define A_TYPE_PACKED32 block_iq3_k_packed32
 #endif
 
+#define QUANT_K_IQ5_K 256
+#define QUANT_R_IQ5_K 1
+
+struct block_iq5_k
+{
+    float16_t d;
+    uint16_t extra;
+    uint8_t scales_h[4];
+    uint8_t scales_l[8];
+    uint8_t qs[128];
+    uint8_t qh[32];
+};
+
+struct block_iq5_k_packed16
+{
+    float16_t d;
+    uint16_t extra;
+    uint16_t scales_h[2];
+    uint16_t scales_l[4];
+    uint16_t qs[64];
+    uint16_t qh[16];
+};
+
+struct block_iq5_k_packed32
+{
+    float16_t d;
+    uint16_t extra;
+    uint32_t scales_h;
+    uint32_t scales_l[2];
+    uint32_t qs[32];
+    uint32_t qh[8];
+};
+
+#if defined(DATA_A_IQ5_K)
+#define QUANT_K QUANT_K_IQ5_K
+#define QUANT_R QUANT_R_IQ5_K
+#define A_TYPE block_iq5_k
+#define A_TYPE_PACKED16 block_iq5_k_packed16
+#define A_TYPE_PACKED32 block_iq5_k_packed32
+#endif
+
+#define QUANT_K_IQ6_K 256
+#define QUANT_R_IQ6_K 1
+
+struct block_iq6_k
+{
+    float16_t d;
+    uint16_t extra;
+    int8_t scales[16];
+    uint8_t qs[128];
+    uint8_t qh[64];
+};
+
+struct block_iq6_k_packed16
+{
+    float16_t d;
+    uint16_t extra;
+    int16_t scales[8];
+    uint16_t qs[64];
+    uint16_t qh[32];
+};
+
+struct block_iq6_k_packed32
+{
+    float16_t d;
+    uint16_t extra;
+    int32_t scales[4];
+    uint32_t qs[32];
+    uint32_t qh[16];
+};
+
+#if defined(DATA_A_IQ6_K)
+#define QUANT_K QUANT_K_IQ6_K
+#define QUANT_R QUANT_R_IQ6_K
+#define A_TYPE block_iq6_k
+#define A_TYPE_PACKED16 block_iq6_k_packed16
+#define A_TYPE_PACKED32 block_iq6_k_packed32
+#endif
+
 #define QUANT_K_IQ4_NL 32
 #define QUANT_R_IQ4_NL 2
 

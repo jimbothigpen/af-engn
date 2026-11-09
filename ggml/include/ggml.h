@@ -436,8 +436,10 @@ extern "C" {
         GGML_TYPE_IQ4_K   = 44,
         GGML_TYPE_IQ2_K   = 45,
         GGML_TYPE_IQ3_K   = 46,
+        GGML_TYPE_IQ5_K   = 47,
+        GGML_TYPE_IQ6_K   = 48,
 
-        GGML_TYPE_COUNT   = 47,
+        GGML_TYPE_COUNT   = 49,
     };
 
     // [TAG_GGML_PREC]

@@ -1,0 +1,61 @@
+#version 450
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) readonly buffer A {block_iq5_k data_a[];};
+layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
+
+const int kvalues_iq5_k[64] = int[64](
+    -126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6, -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+    -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,  1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123
+);
+
+void main() {
+    const uint ib = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x / 8;
+    if (ib >= p.nel / 256) {
+        return;
+    }
+
+    const uint ib32 = gl_LocalInvocationID.x % 8;
+    const uint ib64 = ib32 / 2;
+    const uint is_sub64_hi = ib32 % 2;
+    const uint shift = 2 * ib64;
+    const float d = float(data_a[ib].d);
+    const uint extra = uint(data_a[ib].extra);
+    const uint sh = uint(data_a[ib].scales_h[ib64]);
+    const uint qs_base = 32 * ib64;
+    const uint b_idx = 256 * ib + 32 * ib32;
+
+    float dl0, dl1;
+    uint val_offset0, val_offset1;
+
+    if (is_sub64_hi == 0) {
+        const uint sl0 = uint(data_a[ib].scales_l[2 * ib64 + 0]);
+        dl0 = d * float(int((sl0 & 0xf) | ((sh << 4) & 0x30)) - 32);
+        dl1 = d * float(int((sl0 >> 4)  | ((sh << 2) & 0x30)) - 32);
+        val_offset0 = ((extra >> (4 * ib64 + 0)) & 1) != 0 ? 32 : 0;
+        val_offset1 = ((extra >> (4 * ib64 + 1)) & 1) != 0 ? 32 : 0;
+
+        [[unroll]] for (uint lane = 0; lane < 16; ++lane) {
+            const uint code0 = (uint(data_a[ib].qs[qs_base + lane]) & 0xf) | (((uint(data_a[ib].qh[lane]) >> shift) & 1) << 4);
+            const uint code1 = (uint(data_a[ib].qs[qs_base + 16 + lane]) & 0xf) | (((uint(data_a[ib].qh[16 + lane]) >> shift) & 1) << 4);
+            data_b[b_idx + lane]      = D_TYPE(dl0 * float(kvalues_iq5_k[val_offset0 + code0]));
+            data_b[b_idx + 16 + lane] = D_TYPE(dl1 * float(kvalues_iq5_k[val_offset1 + code1]));
+        }
+    } else {
+        const uint sl1 = uint(data_a[ib].scales_l[2 * ib64 + 1]);
+        dl0 = d * float(int((sl1 & 0xf) | ((sh >> 0) & 0x30)) - 32);
+        dl1 = d * float(int((sl1 >> 4)  | ((sh >> 2) & 0x30)) - 32);
+        val_offset0 = ((extra >> (4 * ib64 + 2)) & 1) != 0 ? 32 : 0;
+        val_offset1 = ((extra >> (4 * ib64 + 3)) & 1) != 0 ? 32 : 0;
+
+        [[unroll]] for (uint lane = 0; lane < 16; ++lane) {
+            const uint code0 = (uint(data_a[ib].qs[qs_base + lane]) >> 4) | (((uint(data_a[ib].qh[lane]) >> shift) & 2) << 3);
+            const uint code1 = (uint(data_a[ib].qs[qs_base + 16 + lane]) >> 4) | (((uint(data_a[ib].qh[16 + lane]) >> shift) & 2) << 3);
+            data_b[b_idx + lane]      = D_TYPE(dl0 * float(kvalues_iq5_k[val_offset0 + code0]));
+            data_b[b_idx + 16 + lane] = D_TYPE(dl1 * float(kvalues_iq5_k[val_offset1 + code1]));
+        }
+    }
+}

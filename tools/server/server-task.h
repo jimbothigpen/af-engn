@@ -29,6 +29,9 @@ enum server_task_type {
     SERVER_TASK_TYPE_SLOT_SAVE,
     SERVER_TASK_TYPE_SLOT_RESTORE,
     SERVER_TASK_TYPE_SLOT_ERASE,
+    SERVER_TASK_TYPE_SLOT_PIN,
+    SERVER_TASK_TYPE_SLOT_UNPIN,
+    SERVER_TASK_TYPE_SLOT_TRUNCATE,
     SERVER_TASK_TYPE_GET_LORA,
     SERVER_TASK_TYPE_SET_LORA,
     SERVER_TASK_TYPE_TTS,
@@ -191,13 +194,17 @@ struct server_task {
 
     server_task_type type;
 
-    // used by SERVER_TASK_TYPE_SLOT_SAVE, SERVER_TASK_TYPE_SLOT_RESTORE, SERVER_TASK_TYPE_SLOT_ERASE
+    // used by SERVER_TASK_TYPE_SLOT_SAVE, SERVER_TASK_TYPE_SLOT_RESTORE, SERVER_TASK_TYPE_SLOT_ERASE, SERVER_TASK_TYPE_SLOT_PIN, SERVER_TASK_TYPE_SLOT_UNPIN, SERVER_TASK_TYPE_SLOT_TRUNCATE
     struct slot_action {
         int id_slot;
         std::string filename;
         std::string filepath;
+        int32_t truncate_start_pos = -1;
+        int32_t truncate_end_pos = -1;
     };
     slot_action slot_action;
+
+    int priority = 5; // 0-9 (0 = highest priority, default = 5)
 
     // used by SERVER_TASK_TYPE_METRICS
     bool metrics_reset_bucket = false;
@@ -459,6 +466,8 @@ struct server_task_result_cmpl_final : server_task_result {
 
     json to_json_non_oaicompat();
 
+    std::string get_finish_reason_detail() const;
+
     json usage_json_oaicompat();
 
     json to_json_oaicompat();
@@ -651,6 +660,20 @@ struct server_task_result_slot_save_load : server_task_result {
 
 struct server_task_result_slot_erase : server_task_result {
     size_t n_erased;
+
+    virtual json to_json() override;
+};
+
+struct server_task_result_slot_pin : server_task_result {
+    bool is_pinned = false;
+
+    virtual json to_json() override;
+};
+
+struct server_task_result_slot_truncate : server_task_result {
+    int32_t start_pos = -1;
+    int32_t end_pos   = -1;
+    size_t  n_remaining = 0;
 
     virtual json to_json() override;
 };

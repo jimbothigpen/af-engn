@@ -5,6 +5,8 @@
 #include "ggml-iq4-k-encoder.h"
 #include "ggml-iq2-k-encoder.h"
 #include "ggml-iq3-k-encoder.h"
+#include "ggml-iq5-k-encoder.h"
+#include "ggml-iq6-k-encoder.h"
 
 #include "ggml.h"
 
@@ -80,6 +82,8 @@ GGML_API void dequantize_row_iq4_nl (const block_iq4_nl  * GGML_RESTRICT x, floa
 GGML_API void dequantize_row_iq4_k  (const block_iq4_k   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq2_k  (const block_iq2_k   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq3_k  (const block_iq3_k   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_iq5_k  (const block_iq5_k   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_iq6_k  (const block_iq6_k   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq4_xs (const block_iq4_xs  * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq3_s  (const block_iq3_s   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 

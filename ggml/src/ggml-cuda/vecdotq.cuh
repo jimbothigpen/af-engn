@@ -1416,6 +1416,120 @@ static __device__ __forceinline__ float vec_dot_iq4_nl_q8_1(
 
 #define VDR_IQ4_K_Q8_1_MMVQ  4
 #define VDR_IQ2_K_Q8_1_MMVQ  4
+#define VDR_IQ5_K_Q8_1_MMVQ  4
+
+static __device__ __forceinline__ float vec_dot_iq5_k_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_iq5_k * bq = (const block_iq5_k *) vbq + kbx;
+
+    const int ib32 = iqs / 4;
+    const int32_t * q8 = (const int *)bq8_1[ib32].qs;
+    const int ib64 = ib32 / 2;
+    const int sub_base = 2 * (ib32 % 2);
+    const int sub16_1 = sub_base + 0;
+    const int sub16_2 = sub_base + 1;
+
+    const uint8_t sh = bq->scales_h[ib64];
+    const uint8_t sl = bq->scales_l[2*ib64 + (ib32 % 2)];
+    const int raw_l1 = (sl & 0xf);
+    const int raw_l2 = (sl >> 4);
+    const int raw_h1 = (sub16_1 == 0) ? ((sh << 4) & 0x30) : ((sh     ) & 0x30);
+    const int raw_h2 = (sub16_2 == 1) ? ((sh << 2) & 0x30) : ((sh >> 2) & 0x30);
+    const int ls1 = (raw_l1 | raw_h1) - 32;
+    const int ls2 = (raw_l2 | raw_h2) - 32;
+
+    const int val1_offset = ((bq->extra >> (4 * ib64 + sub16_1)) & 1) ? 32 : 0;
+    const int val2_offset = ((bq->extra >> (4 * ib64 + sub16_2)) & 1) ? 32 : 0;
+
+    const int shift_qh = 2 * ib64;
+    const uint8_t * qs = bq->qs + 32 * ib64;
+    const uint8_t * qh = bq->qh;
+
+    static const int8_t values[64] = {
+        -126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6, -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+        -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,  1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123,
+    };
+
+    int sumi1 = 0, sumi2 = 0;
+#pragma unroll
+    for (int j = 0; j < 4; ++j) {
+        const int8_t * q8_lane1 = (const int8_t *)(q8 + j);
+        const int8_t * q8_lane2 = (const int8_t *)(q8 + 4 + j);
+        for (int l = 0; l < 4; ++l) {
+            const int idx1 = 4 * j + l;
+            const int low4_1 = (sub16_1 < 2) ? (qs[idx1] & 0xf) : (qs[idx1] >> 4);
+            const int high1_1 = (sub16_1 < 2) ? ((qh[idx1] >> shift_qh) & 1) : (((qh[idx1] >> shift_qh) & 2) >> 1);
+            const int code1 = low4_1 | (high1_1 << 4);
+            sumi1 += (int)q8_lane1[l] * (int)values[val1_offset + code1];
+
+            const int idx2 = 16 + 4 * j + l;
+            const int low4_2 = (sub16_2 < 2) ? (qs[idx2] & 0xf) : (qs[idx2] >> 4);
+            const int high1_2 = (sub16_2 < 2) ? ((qh[idx2] >> shift_qh) & 1) : (((qh[idx2] >> shift_qh) & 2) >> 1);
+            const int code2 = low4_2 | (high1_2 << 4);
+            sumi2 += (int)q8_lane2[l] * (int)values[val2_offset + code2];
+        }
+    }
+    const float d = __half2float(bq->d) * __low2float(bq8_1[ib32].ds);
+    return d * (sumi1 * ls1 + sumi2 * ls2);
+}
+
+#define VDR_IQ6_K_Q8_1_MMVQ  4
+
+static __device__ __forceinline__ float vec_dot_iq6_k_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_iq6_k * bq = (const block_iq6_k *) vbq + kbx;
+
+    const int ib32 = iqs / 4;
+    const int32_t * q8 = (const int *)bq8_1[ib32].qs;
+
+    const int ls1 = bq->scales[2*ib32 + 0];
+    const int ls2 = bq->scales[2*ib32 + 1];
+
+    const int val1_offset = ((bq->extra >> (2*ib32 + 0)) & 1) ? 64 : 0;
+    const int val2_offset = ((bq->extra >> (2*ib32 + 1)) & 1) ? 64 : 0;
+
+    const int ib64 = ib32 / 2;
+    const int shift = (ib64 & 1) * 4;
+    const uint8_t * qs = bq->qs + 32 * ib64;
+    const uint8_t * qh = bq->qh + 32 * (ib64 / 2);
+    const bool use_upper = (ib32 % 2) != 0;
+
+    static const int8_t values[128] = {
+        -127, -121, -115, -109, -104,  -98,  -93,  -88,  -84,  -79,  -74,  -70,  -66,  -62,  -58,  -54,
+         -51,  -47,  -44,  -40,  -37,  -34,  -31,  -28,  -25,  -22,  -19,  -16,  -13,  -11,   -8,   -5,
+          -2,    0,    3,    6,    9,   12,   14,   17,   20,   23,   27,   30,   33,   36,   40,   44,
+          47,   51,   55,   59,   63,   68,   72,   77,   82,   87,   92,   98,  103,  109,  115,  121,
+        -126, -120, -114, -108, -103,  -97,  -92,  -87,  -83,  -78,  -73,  -69,  -65,  -61,  -57,  -53,
+         -50,  -46,  -43,  -39,  -36,  -33,  -30,  -27,  -24,  -21,  -18,  -15,  -12,  -10,   -7,   -4,
+          -1,    1,    4,    7,   10,   13,   15,   18,   21,   24,   28,   31,   34,   37,   41,   45,
+          48,   52,   56,   60,   64,   69,   73,   78,   83,   88,   93,   99,  104,  110,  116,  122,
+    };
+
+    int sumi1 = 0, sumi2 = 0;
+#pragma unroll
+    for (int j = 0; j < 4; ++j) {
+        const int8_t * q8_lane1 = (const int8_t *)(q8 + j);
+        const int8_t * q8_lane2 = (const int8_t *)(q8 + 4 + j);
+        for (int l = 0; l < 4; ++l) {
+            const int idx1 = 4 * j + l;
+            const int code1 = use_upper ?
+                ((qs[idx1] >> 4) | (((qh[idx1] >> shift) & 0x0c) << 2)) :
+                ((qs[idx1] & 0xf) | (((qh[idx1] >> shift) & 0x03) << 4));
+            sumi1 += (int)q8_lane1[l] * (int)values[val1_offset + code1];
+
+            const int idx2 = 16 + 4 * j + l;
+            const int code2 = use_upper ?
+                ((qs[idx2] >> 4) | (((qh[idx2] >> shift) & 0x0c) << 2)) :
+                ((qs[idx2] & 0xf) | (((qh[idx2] >> shift) & 0x03) << 4));
+            sumi2 += (int)q8_lane2[l] * (int)values[val2_offset + code2];
+        }
+    }
+    const float d = __half2float(bq->d) * __low2float(bq8_1[ib32].ds);
+    return d * (sumi1 * ls1 + sumi2 * ls2);
+}
+
 #define VDR_IQ3_K_Q8_1_MMVQ  4
 
 static __device__ __forceinline__ float vec_dot_iq3_k_q8_1(

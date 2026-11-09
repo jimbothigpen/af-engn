@@ -152,6 +152,9 @@ private:
     std::unique_ptr<server_res_generator> handle_slots_save(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_slots_restore(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_slots_erase(const server_http_req &, int id_slot);
+    std::unique_ptr<server_res_generator> handle_slots_pin(const server_http_req & req, int id_slot);
+    std::unique_ptr<server_res_generator> handle_slots_unpin(const server_http_req & req, int id_slot);
+    std::unique_ptr<server_res_generator> handle_slots_truncate(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_embeddings_impl(const server_http_req & req, task_response_type res_type);
     std::unique_ptr<server_res_generator> handle_rerank_impl(const server_http_req & req);
     std::unique_ptr<server_res_generator> handle_count_tokens(const server_http_req & req, task_response_type res_type);

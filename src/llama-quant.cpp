@@ -985,6 +985,11 @@ ggml_type llama_ftype_get_default_type(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_IQ1_M:   return GGML_TYPE_IQ1_M;
         case LLAMA_FTYPE_MOSTLY_IQ4_NL:  return GGML_TYPE_IQ4_NL;
         case LLAMA_FTYPE_MOSTLY_IQ4_XS:  return GGML_TYPE_IQ4_XS;
+        case LLAMA_FTYPE_MOSTLY_IQ5_K:   return GGML_TYPE_IQ5_K;
+        case LLAMA_FTYPE_MOSTLY_IQ6_K:   return GGML_TYPE_IQ6_K;
+        case LLAMA_FTYPE_MOSTLY_IQ2_K:   return GGML_TYPE_IQ2_K;
+        case LLAMA_FTYPE_MOSTLY_IQ3_K:   return GGML_TYPE_IQ3_K;
+        case LLAMA_FTYPE_MOSTLY_IQ4_K:   return GGML_TYPE_IQ4_K;
         case LLAMA_FTYPE_MOSTLY_IQ3_S:
         case LLAMA_FTYPE_MOSTLY_IQ3_M:   return GGML_TYPE_IQ3_S;
 
