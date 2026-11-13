@@ -1,0 +1,55 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+const int kvalues_iq5_ks[64] = int[64](-126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6, -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121, -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4, 1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123);
+
+uint read_u32(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8) | (uint(data_a[offset + 2]) << 16) | (uint(data_a[offset + 3]) << 24);
+}
+
+void compute_outputs(uint first_row, uint num_rows) {
+uint a_offset, b_offset, d_offset;
+get_offsets(a_offset, b_offset, d_offset);
+const uint nb = p.ncols / 256;
+const uint row_bytes = 4 + nb * 168;
+const uint tid = gl_LocalInvocationID.x;
+const uint g = tid % 8;
+const uint subgroup = g / 2;
+const uint nib = g % 2;
+for (uint j = 0; j < NUM_COLS; ++j) {
+for (uint n = 0; n < NUM_ROWS; ++n) {
+temp[j][n] = FLOAT_TYPE(0);
+}
+}
+for (uint i = tid / 8; i < nb; i += gl_WorkGroupSize.x / 8) {
+for (uint n = 0; n < num_rows; ++n) {
+const uint row_offset = (a_offset / nb + first_row + n) * row_bytes;
+const uint block_offset = row_offset + 4 + i * 168;
+const uint scale = uint(data_a[block_offset + g]);
+const uint lut_offset = (scale & 1) << 5;
+const FLOAT_TYPE d = FLOAT_TYPE(uintBitsToFloat(read_u32(row_offset)) * float(int(scale & 254) - 127));
+for (uint j = 0; j < NUM_COLS; ++j) {
+FLOAT_TYPE sum = FLOAT_TYPE(0);
+for (uint lane = 0; lane < 32; ++lane) {
+const uint q = ((uint(data_a[block_offset + 8 + 32 * subgroup + lane]) >> (4 * nib)) & 15) | (((uint(data_a[block_offset + 136 + lane]) >> g) & 1) << 4);
+const uint b_index = j * p.batch_stride_b + b_offset + i * 256 + g * 32 + lane;
+sum = fma(FLOAT_TYPE(data_b[b_index]), FLOAT_TYPE(kvalues_iq5_ks[lut_offset + q]), sum);
+}
+temp[j][n] = fma(d, sum, temp[j][n]);
+}
+}
+}
+reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+if (first_row >= p.stride_d) {
+return;
+}
+compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

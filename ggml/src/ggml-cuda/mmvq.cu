@@ -1,5 +1,334 @@
 #include "mmvq.cuh"
 #include "quantize.cuh"
+#include "dequantize.cuh"
+
+struct iq2_ks_shape {
+    int64_t ne[4];
+    size_t nb[4];
+};
+
+static __global__ void mul_mat_iq2_ks_kernel(const char * x, const char * y, const char * ids, char * dst,
+        iq2_ks_shape a, iq2_ks_shape b, iq2_ks_shape d, size_t ids_stride) {
+    __shared__ float sums[256];
+    const int64_t row = blockIdx.x;
+    const int64_t col = blockIdx.y;
+    for (int64_t z = blockIdx.z; z < d.ne[2]*d.ne[3]; z += gridDim.z) {
+        const int64_t channel = z % d.ne[2];
+        const int64_t sample = z / d.ne[2];
+        const int64_t expert = ids ? *(const int32_t *)(ids + channel*ids_stride + col*sizeof(int32_t)) :
+            channel / (d.ne[2]/a.ne[2]);
+        const char * xr = x + row*a.nb[1] + expert*a.nb[2] + sample/(d.ne[3]/a.ne[3])*a.nb[3];
+        const char * yr = ids ? y + (col%b.ne[1])*b.nb[1] + channel*b.nb[2] :
+            y + col*b.nb[1] + channel*b.nb[2] + sample*b.nb[3];
+        float sum = 0.0f;
+        for (int64_t k = threadIdx.x; k < a.ne[0]; k += blockDim.x) {
+            sum += iq2_ks_value(xr, k) * *(const float *)(yr + k*b.nb[0]);
+        }
+        sums[threadIdx.x] = sum;
+        __syncthreads();
+        for (int n = 128; n > 0; n /= 2) {
+            if (threadIdx.x < n) {
+                sums[threadIdx.x] += sums[threadIdx.x+n];
+            }
+            __syncthreads();
+        }
+        if (threadIdx.x == 0) {
+            *(float *)(dst + row*d.nb[0] + col*d.nb[1] + channel*d.nb[2] + sample*d.nb[3]) = sums[0];
+        }
+        __syncthreads();
+    }
+}
+
+void ggml_cuda_mul_mat_iq2_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+        const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst) {
+    GGML_ASSERT(src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+    iq2_ks_shape a{}, b{}, d{};
+    for (int i = 0; i < 4; ++i) {
+        a.ne[i] = src0->ne[i]; a.nb[i] = src0->nb[i];
+        b.ne[i] = src1->ne[i]; b.nb[i] = src1->nb[i];
+        d.ne[i] = dst->ne[i]; d.nb[i] = dst->nb[i];
+    }
+    const dim3 grid(dst->ne[0], dst->ne[1], std::min<int64_t>(dst->ne[2]*dst->ne[3], 65535));
+    mul_mat_iq2_ks_kernel<<<grid, 256, 0, ctx.stream()>>>((const char *)src0->data,
+        (const char *)src1->data, ids ? (const char *)ids->data : nullptr, (char *)dst->data,
+        a, b, d, ids ? ids->nb[1] : 0);
+}
+
+
+struct iq3_ks_shape {
+int64_t ne[4];
+size_t nb[4];
+};
+
+static __global__ void mul_mat_iq3_ks_kernel(const char * x, const char * y, const char * ids, char * dst,
+iq3_ks_shape a, iq3_ks_shape b, iq3_ks_shape d, size_t ids_stride) {
+__shared__ float sums[256];
+const int64_t row = blockIdx.x;
+const int64_t col = blockIdx.y;
+for (int64_t z = blockIdx.z; z < d.ne[2]*d.ne[3]; z += gridDim.z) {
+const int64_t channel = z % d.ne[2];
+const int64_t sample = z / d.ne[2];
+const int64_t expert = ids ? *(const int32_t *)(ids + channel*ids_stride + col*sizeof(int32_t)) :
+channel / (d.ne[2]/a.ne[2]);
+const char * xr = x + row*a.nb[1] + expert*a.nb[2] + sample/(d.ne[3]/a.ne[3])*a.nb[3];
+const char * yr = ids ? y + (col%b.ne[1])*b.nb[1] + channel*b.nb[2] :
+y + col*b.nb[1] + channel*b.nb[2] + sample*b.nb[3];
+float sum = 0.0f;
+for (int64_t k = threadIdx.x; k < a.ne[0]; k += blockDim.x) {
+sum += iq3_ks_value(xr, k) * *(const float *)(yr + k*b.nb[0]);
+}
+sums[threadIdx.x] = sum;
+__syncthreads();
+for (int n = 128; n > 0; n /= 2) {
+if (threadIdx.x < n) {
+sums[threadIdx.x] += sums[threadIdx.x+n];
+}
+__syncthreads();
+}
+if (threadIdx.x == 0) {
+*(float *)(dst + row*d.nb[0] + col*d.nb[1] + channel*d.nb[2] + sample*d.nb[3]) = sums[0];
+}
+__syncthreads();
+}
+}
+
+void ggml_cuda_mul_mat_iq3_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst) {
+GGML_ASSERT(src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+iq3_ks_shape a{}, b{}, d{};
+for (int i = 0; i < 4; ++i) {
+a.ne[i] = src0->ne[i]; a.nb[i] = src0->nb[i];
+b.ne[i] = src1->ne[i]; b.nb[i] = src1->nb[i];
+d.ne[i] = dst->ne[i]; d.nb[i] = dst->nb[i];
+}
+const dim3 grid(dst->ne[0], dst->ne[1], std::min<int64_t>(dst->ne[2]*dst->ne[3], 65535));
+mul_mat_iq3_ks_kernel<<<grid, 256, 0, ctx.stream()>>>((const char *)src0->data,
+(const char *)src1->data, ids ? (const char *)ids->data : nullptr, (char *)dst->data,
+a, b, d, ids ? ids->nb[1] : 0);
+}
+
+struct iq4_ks_shape {
+int64_t ne[4];
+size_t nb[4];
+};
+
+static __device__ __forceinline__ float iq4_ks_value(const char * row, int64_t i) {
+const int8_t values[32] = {
+-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+-123, -100, -79, -61, -45, -31, -18, -6, 5, 17, 29, 42, 57, 73, 93, 117,
+};
+const uint32_t dbits = uint32_t((uint8_t) row[0]) | (uint32_t((uint8_t) row[1]) << 8) |
+uint32_t((uint8_t) row[2]) << 16 | uint32_t((uint8_t) row[3]) << 24;
+const int64_t ib = i / QK_K;
+const int e = i % QK_K;
+const int g = e / 32;
+const int j = e % 16;
+const char * block = row + sizeof(float) + ib*sizeof(block_iq4_ks);
+const uint8_t scale = ((const uint8_t *) block)[g];
+const uint8_t q = ((const uint8_t *) block)[8 + 16*g + j];
+const float dl = __uint_as_float(dbits) * (int(scale & 254) - 127);
+return dl * values[((scale & 1) << 4) + (e % 32 < 16 ? (q & 15) : (q >> 4))];
+}
+
+static __global__ void mul_mat_iq4_ks_kernel(const char * x, const char * y, const char * ids, char * dst,
+iq4_ks_shape a, iq4_ks_shape b, iq4_ks_shape d, size_t ids_stride) {
+__shared__ float sums[256];
+const int64_t row = blockIdx.x;
+const int64_t col = blockIdx.y;
+for (int64_t z = blockIdx.z; z < d.ne[2]*d.ne[3]; z += gridDim.z) {
+const int64_t channel = z % d.ne[2];
+const int64_t sample = z / d.ne[2];
+const int64_t expert = ids ? *(const int32_t *)(ids + channel*ids_stride + col*sizeof(int32_t)) :
+channel / (d.ne[2]/a.ne[2]);
+const char * xr = x + row*a.nb[1] + expert*a.nb[2] + sample/(d.ne[3]/a.ne[3])*a.nb[3];
+const char * yr = ids ? y + (col%b.ne[1])*b.nb[1] + channel*b.nb[2] :
+y + col*b.nb[1] + channel*b.nb[2] + sample*b.nb[3];
+float sum = 0.0f;
+for (int64_t k = threadIdx.x; k < a.ne[0]; k += blockDim.x) {
+sum += iq4_ks_value(xr, k) * *(const float *)(yr + k*b.nb[0]);
+}
+sums[threadIdx.x] = sum;
+__syncthreads();
+for (int n = 128; n > 0; n /= 2) {
+if (threadIdx.x < n) {
+sums[threadIdx.x] += sums[threadIdx.x+n];
+}
+__syncthreads();
+}
+if (threadIdx.x == 0) {
+*(float *)(dst + row*d.nb[0] + col*d.nb[1] + channel*d.nb[2] + sample*d.nb[3]) = sums[0];
+}
+__syncthreads();
+}
+}
+
+void ggml_cuda_mul_mat_iq4_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst) {
+GGML_ASSERT(src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+iq4_ks_shape a{}, b{}, d{};
+for (int i = 0; i < 4; ++i) {
+a.ne[i] = src0->ne[i]; a.nb[i] = src0->nb[i];
+b.ne[i] = src1->ne[i]; b.nb[i] = src1->nb[i];
+d.ne[i] = dst->ne[i]; d.nb[i] = dst->nb[i];
+}
+const dim3 grid(dst->ne[0], dst->ne[1], std::min<int64_t>(dst->ne[2]*dst->ne[3], 65535));
+mul_mat_iq4_ks_kernel<<<grid, 256, 0, ctx.stream()>>>((const char *)src0->data,
+(const char *)src1->data, ids ? (const char *)ids->data : nullptr, (char *)dst->data,
+a, b, d, ids ? ids->nb[1] : 0);
+}
+
+struct iq4_kss_shape {
+int64_t ne[4];
+size_t nb[4];
+};
+
+static __device__ __forceinline__ float iq4_kss_value(const char * row, int64_t i) {
+const int8_t values[32] = {
+-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+-123, -100, -79, -61, -45, -31, -18, -6, 5, 17, 29, 42, 57, 73, 93, 117,
+};
+const uint8_t * bytes = (const uint8_t *) row;
+float d;
+memcpy(&d, row, sizeof(d));
+const int64_t ib = i / QK_K;
+const int e = i % QK_K;
+const int g = e / 32;
+const int j = e % 16;
+const uint8_t * group = bytes + 4 + 128*ib + 16*g; // 4 + 128*N/256 row layout
+int ls = 0;
+for (int r = 0; r < 8; ++r) {
+const uint16_t ur = uint16_t(group[2*r]) | (uint16_t(group[2*r + 1]) << 8);
+ls |= (ur & 1) << r;
+}
+const int lane = j/2;
+const uint16_t u = uint16_t(group[2*lane]) | (uint16_t(group[2*lane + 1]) << 8);
+const uint16_t aux = (u & 65534) ^ ((u & 65534) >> 1);
+const uint8_t qbyte = (aux >> (8*(j % 2))) & 255;
+const int q = e % 32 < 16 ? (qbyte & 15) : (qbyte >> 4);
+return d * ((ls & 254) - 127) * values[((ls & 1) << 4) + q];
+}
+
+static __global__ void mul_mat_iq4_kss_kernel(const char * x, const char * y, const char * ids, char * dst,
+iq4_kss_shape a, iq4_kss_shape b, iq4_kss_shape d, size_t ids_stride) {
+__shared__ float sums[256];
+const int64_t row = blockIdx.x;
+const int64_t col = blockIdx.y;
+for (int64_t z = blockIdx.z; z < d.ne[2]*d.ne[3]; z += gridDim.z) {
+const int64_t channel = z % d.ne[2];
+const int64_t sample = z / d.ne[2];
+const int64_t expert = ids ? *(const int32_t *)(ids + channel*ids_stride + col*sizeof(int32_t)) :
+channel / (d.ne[2]/a.ne[2]);
+const char * xr = x + row*a.nb[1] + expert*a.nb[2] + sample/(d.ne[3]/a.ne[3])*a.nb[3];
+const char * yr = ids ? y + (col%b.ne[1])*b.nb[1] + channel*b.nb[2] :
+y + col*b.nb[1] + channel*b.nb[2] + sample*b.nb[3];
+float sum = 0.0f;
+for (int64_t k = threadIdx.x; k < a.ne[0]; k += blockDim.x) {
+sum += iq4_kss_value(xr, k) * *(const float *)(yr + k*b.nb[0]);
+}
+sums[threadIdx.x] = sum;
+__syncthreads();
+for (int n = 128; n > 0; n /= 2) {
+if (threadIdx.x < n) {
+sums[threadIdx.x] += sums[threadIdx.x+n];
+}
+__syncthreads();
+}
+if (threadIdx.x == 0) {
+*(float *)(dst + row*d.nb[0] + col*d.nb[1] + channel*d.nb[2] + sample*d.nb[3]) = sums[0];
+}
+__syncthreads();
+}
+}
+
+void ggml_cuda_mul_mat_iq4_kss(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst) {
+GGML_ASSERT(src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+iq4_kss_shape a{}, b{}, d{};
+for (int i = 0; i < 4; ++i) {
+a.ne[i] = src0->ne[i]; a.nb[i] = src0->nb[i];
+b.ne[i] = src1->ne[i]; b.nb[i] = src1->nb[i];
+d.ne[i] = dst->ne[i]; d.nb[i] = dst->nb[i];
+}
+const dim3 grid(dst->ne[0], dst->ne[1], std::min<int64_t>(dst->ne[2]*dst->ne[3], 65535));
+mul_mat_iq4_kss_kernel<<<grid, 256, 0, ctx.stream()>>>((const char *)src0->data,
+(const char *)src1->data, ids ? (const char *)ids->data : nullptr, (char *)dst->data,
+a, b, d, ids ? ids->nb[1] : 0);
+}
+
+struct iq5_ks_shape {
+int64_t ne[4];
+size_t nb[4];
+};
+
+static __device__ __forceinline__ float iq5_ks_value(const char * row, int64_t i) {
+const int8_t values[64] = {
+-126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6,
+-1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+-124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,
+1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123,
+};
+float d;
+memcpy(&d, row, sizeof(d));
+const int64_t ib = i / QK_K;
+const int e = i % QK_K;
+const int g = e / 64;
+const int h = (e / 32) % 2;
+const int j = e % 32;
+const uint8_t * block = (const uint8_t *) (row + 4 + 168*ib);
+const uint8_t scale = block[2*g + h];
+const uint8_t * qs = block + 8;
+const uint8_t * qh = block + 136;
+const int code = ((qs[32*g + j] >> (4*h)) & 15) | (((qh[j] >> (2*g + h)) & 1) << 4);
+return d * ((int)(scale & 254) - 127) * values[((scale & 1) << 5) + code];
+}
+
+static __global__ void mul_mat_iq5_ks_kernel(const char * x, const char * y, const char * ids, char * dst,
+iq5_ks_shape a, iq5_ks_shape b, iq5_ks_shape d, size_t ids_stride) {
+__shared__ float sums[256];
+const int64_t row = blockIdx.x;
+const int64_t col = blockIdx.y;
+for (int64_t z = blockIdx.z; z < d.ne[2]*d.ne[3]; z += gridDim.z) {
+const int64_t channel = z % d.ne[2];
+const int64_t sample = z / d.ne[2];
+const int64_t expert = ids ? *(const int32_t *)(ids + channel*ids_stride + col*sizeof(int32_t)) :
+channel / (d.ne[2]/a.ne[2]);
+const char * xr = x + row*a.nb[1] + expert*a.nb[2] + sample/(d.ne[3]/a.ne[3])*a.nb[3];
+const char * yr = ids ? y + (col%b.ne[1])*b.nb[1] + channel*b.nb[2] :
+y + col*b.nb[1] + channel*b.nb[2] + sample*b.nb[3];
+float sum = 0.0f;
+for (int64_t k = threadIdx.x; k < a.ne[0]; k += blockDim.x) {
+sum += iq5_ks_value(xr, k) * *(const float *)(yr + k*b.nb[0]);
+}
+sums[threadIdx.x] = sum;
+__syncthreads();
+for (int n = 128; n > 0; n /= 2) {
+if (threadIdx.x < n) {
+sums[threadIdx.x] += sums[threadIdx.x+n];
+}
+__syncthreads();
+}
+if (threadIdx.x == 0) {
+*(float *)(dst + row*d.nb[0] + col*d.nb[1] + channel*d.nb[2] + sample*d.nb[3]) = sums[0];
+}
+__syncthreads();
+}
+}
+
+void ggml_cuda_mul_mat_iq5_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst) {
+GGML_ASSERT(src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+iq5_ks_shape a{}, b{}, d{};
+for (int i = 0; i < 4; ++i) {
+a.ne[i] = src0->ne[i]; a.nb[i] = src0->nb[i];
+b.ne[i] = src1->ne[i]; b.nb[i] = src1->nb[i];
+d.ne[i] = dst->ne[i]; d.nb[i] = dst->nb[i];
+}
+const dim3 grid(dst->ne[0], dst->ne[1], std::min<int64_t>(dst->ne[2]*dst->ne[3], 65535));
+mul_mat_iq5_ks_kernel<<<grid, 256, 0, ctx.stream()>>>((const char *)src0->data,
+(const char *)src1->data, ids ? (const char *)ids->data : nullptr, (char *)dst->data,
+a, b, d, ids ? ids->nb[1] : 0);
+}
+
 #include "unary.cuh"
 #include "vecdotq.cuh"
 

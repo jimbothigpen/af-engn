@@ -1,0 +1,50 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "types.glsl"
+#include "generic_binary_head.glsl"
+
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+
+const int kvalues_iq4_kss[32] = int[32](-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113, -123, -100, -79, -61, -45, -31, -18, -6, 5, 17, 29, 42, 57, 73, 93, 117);
+
+uint read_u32(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8) | (uint(data_a[offset + 2]) << 16) | (uint(data_a[offset + 3]) << 24);
+}
+
+uint read_u16(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8);
+}
+uint read_scale(uint offset) {
+uint ls = 0;
+for (uint k = 0; k < 8; ++k) ls |= (read_u16(offset + 2*k) & 1) << k;
+return ls;
+}
+uint read_code(uint offset, uint lane) {
+uint v = read_u16(offset + 2*((lane%16)/2)) & 65534;
+v ^= v >> 1;
+return (v >> (8*(lane%2) + (lane>=16 ? 4 : 0))) & 15;
+}
+
+void main() {
+const uint col = gl_GlobalInvocationID.x;
+if (col >= p.ne00) {
+return;
+}
+for (uint z = gl_GlobalInvocationID.z; z < p.ne11 * p.ne12; z += gl_NumWorkGroups.z) {
+for (uint y = gl_GlobalInvocationID.y; y < p.ne10; y += gl_NumWorkGroups.y) {
+const uint i11 = z / p.ne12;
+const uint i12 = z % p.ne12;
+const uint row = uint(data_b[get_boffset() + y * p.nb10 + i11 * p.nb11 + i12 * p.nb12]);
+const uint row_offset = get_aoffset() + row * p.nb01 + i11 * p.nb02 + i12 * p.nb03;
+const uint block_offset = row_offset + 4 + (col / 256) * 128;
+const uint g = (col % 256) / 32;
+const uint j = col % 16;
+const uint scale = read_scale(block_offset + g*16);
+const uint nibble = read_code(block_offset + g*16, col%32);
+const uint dst = get_doffset() + y * p.nb21 + i11 * p.nb22 + i12 * p.nb23 + col;
+data_d[dst] = D_TYPE(uintBitsToFloat(read_u32(row_offset)) * float(int(scale & 254) - 127) * float(kvalues_iq4_kss[((scale & 1) << 4) + nibble]));
+}
+}
+}

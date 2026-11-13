@@ -413,6 +413,40 @@ typedef struct {
 } block_iq6_k;
 static_assert(sizeof(block_iq6_k) == sizeof(ggml_half) + sizeof(uint16_t) + QK_K/16 + QK_K/2 + QK_K/4, "wrong iq6_k block size/padding");
 
+typedef struct {
+uint16_t extra;
+uint8_t  scales[QK_K/64];
+uint8_t  qs[QK_K/4];
+} block_iq2_ks;
+static_assert(sizeof(block_iq2_ks) == sizeof(uint16_t) + QK_K/64 + QK_K/4, "wrong iq2_ks block size/padding");
+
+typedef struct {
+    uint16_t extra;
+    uint8_t  scales[QK_K/64];
+    uint8_t  qs[QK_K/4];
+    uint8_t  qh[QK_K/8];
+} block_iq3_ks;
+static_assert(sizeof(block_iq3_ks) == sizeof(uint16_t) + QK_K/64 + QK_K/4 + QK_K/8, "wrong iq3_ks block size/padding");
+
+typedef struct {
+uint8_t  scales[QK_K/32];
+uint8_t  qs[QK_K/2];
+} block_iq4_ks;
+// Wire ABI: sizeof 136; scales offset 0; qs offset 8.
+static_assert(sizeof(block_iq4_ks) == 136, "wrong iq4_ks block size/padding");
+
+typedef struct {
+uint8_t  scales[QK_K/32];
+uint8_t  qs[QK_K/2];
+uint8_t  qh[QK_K/8];
+} block_iq5_ks;
+static_assert(sizeof(block_iq5_ks) == 168, "wrong iq5_ks block size/padding");
+
+typedef struct {
+uint32_t qs[32];
+} block_iq4_kss;
+static_assert(sizeof(block_iq4_kss) == 128, "wrong iq4_kss block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

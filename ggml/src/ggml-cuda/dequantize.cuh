@@ -1,6 +1,130 @@
 #include "common.cuh"
 #include "convert.cuh"
 
+static __device__ __forceinline__ float iq2_ks_value(const void * row, int64_t i) {
+    const block_iq2_ks & b = ((const block_iq2_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
+    const int g = (i % QK_K) / 32;
+    const int t = g / 2;
+    const int h = g % 2;
+    const int e = b.extra >> (2*t);
+    const int scale = int(((b.scales[t] >> (4*h)) & 15) | ((e >> (4+h)) & 16)) - 16;
+    const int q = (b.qs[(t/2)*32 + i%32] >> (4*(t%2) + 2*h)) & 3;
+    const int values[8] = {-31, -13, 1, 17, -26, -8, 6, 22};
+    return __half2float(*(const half *) row) * scale * values[((e >> h) & 1)*4 + q];
+}
+
+template<typename dst_t>
+static __device__ void dequantize_iq2_ks(const void * row, const int64_t ib, dst_t * y, const int tid) {
+    for (int j = tid; j < QK_K; j += 32) {
+        y[j] = ggml_cuda_cast<dst_t>(iq2_ks_value(row, ib*QK_K + j));
+    }
+}
+
+
+static __device__ __forceinline__ float iq3_ks_value(const void * row, int64_t i) {
+const block_iq3_ks & b = ((const block_iq3_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
+const int e = i % QK_K;
+const int t = e / 32;
+const int j = e % 32;
+const int ls = ((b.scales[t % 4] >> (4*(t / 4))) & 15) | (((b.extra >> t) & 1) << 4);
+const int page = (b.extra >> (8 + t)) & 1;
+const int q = ((b.qs[32*(t / 4) + j] >> (2*(t % 4))) & 3) | (((b.qh[j] >> t) & 1) << 2);
+const int8_t values[16] = {-63, -40, -23, -10, 1, 13, 28, 47, -59, -36, -19, -6, 5, 17, 32, 51};
+return __half2float(*(const half *) row) * (ls - 16) * values[8*page + q];
+}
+
+template<typename dst_t>
+static __device__ void dequantize_iq3_ks(const void * row, const int64_t ib, dst_t * y, const int tid) {
+for (int j = tid; j < QK_K; j += 32) {
+y[j] = ggml_cuda_cast<dst_t>(iq3_ks_value(row, ib*QK_K + j));
+}
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq4_ks(const void * row, const int64_t ib, dst_t * y, const int tid) {
+const int8_t iq4k_values[32] = {
+-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+-123, -100, -79, -61, -45, -31, -18,  -6, 5, 17, 29, 42, 57, 73, 93, 117,
+};
+
+float d;
+memcpy(&d, row, sizeof(d));
+const uint8_t * block = (const uint8_t *) row + sizeof(d) + ib*sizeof(block_iq4_ks);
+const uint8_t * scales = block;
+const uint8_t * qs = block + QK_K/32;
+
+for (int g = tid; g < QK_K/32; g += 32) {
+const uint8_t scale = scales[g];
+const float dl = d * ((int) (scale & 254) - 127);
+const int8_t * values = iq4k_values + ((scale & 1) << 4);
+const uint8_t q = qs[16*g];
+y[32*g +  0] = ggml_cuda_cast<dst_t>(dl * values[q & 0xf]);
+y[32*g + 16] = ggml_cuda_cast<dst_t>(dl * values[q >> 4]);
+for (int j = 1; j < 16; ++j) {
+const uint8_t qj = qs[16*g + j];
+y[32*g + j]      = ggml_cuda_cast<dst_t>(dl * values[qj & 0xf]);
+y[32*g + 16 + j] = ggml_cuda_cast<dst_t>(dl * values[qj >> 4]);
+}
+}
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq5_ks(const void * row, const int64_t ib, dst_t * y, const int tid) {
+const int8_t iq5nl_values[64] = {
+-126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6,
+-1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+-124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,
+1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123,
+};
+
+float d;
+memcpy(&d, row, sizeof(d));
+const uint8_t * block = (const uint8_t *) row + 4 + 168*ib;
+const uint8_t * scales = block;
+const uint8_t * qs = block + 8;
+const uint8_t * qh = block + 136;
+
+for (int j = 0; j < 8; ++j) {
+const int g = j/2;
+const int h = j%2;
+const uint8_t scale = scales[2*g + h];
+const float dl = d * ((int) (scale & 254) - 127);
+const int code = ((qs[32*g + tid] >> (4*h)) & 15) | (((qh[tid] >> (2*g + h)) & 1) << 4);
+y[64*g + 32*h + tid] = ggml_cuda_cast<dst_t>(dl * iq5nl_values[((scale & 1) << 5) + code]);
+}
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq4_kss(const void * row, const int64_t ib, dst_t * y, const int tid) {
+    const int8_t iq4k_values[32] = {
+        -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+        -123, -100, -79, -61, -45, -31, -18,  -6, 5, 17, 29, 42, 57, 73, 93, 117,
+    };
+    const uint8_t * bytes = (const uint8_t *) row;
+    float d;
+    memcpy(&d, row, sizeof(d));
+    const uint8_t * block = bytes + 4 + 128*ib; // 4 + 128*N/256 row layout
+
+    for (int g = tid; g < QK_K/32; g += 32) {
+        const uint8_t * group = block + 16*g;
+        int ls = 0;
+        for (int r = 0; r < 8; ++r) {
+            const uint16_t ur = uint16_t(group[2*r]) | (uint16_t(group[2*r + 1]) << 8);
+            ls |= (ur & 1) << r;
+        }
+        const float dl = d * ((ls & 254) - 127);
+        const int8_t * values = iq4k_values + ((ls & 1) << 4);
+        for (int j = 0; j < 16; ++j) {
+            const int lane = j/2;
+            const uint16_t u = uint16_t(group[2*lane]) | (uint16_t(group[2*lane + 1]) << 8);
+            const uint16_t aux = (u & 65534) ^ ((u & 65534) >> 1);
+            const uint8_t qbyte = (aux >> (8*(j % 2))) & 255;
+            y[32*g + j]      = ggml_cuda_cast<dst_t>(dl * values[qbyte & 15]);
+            y[32*g + 16 + j] = ggml_cuda_cast<dst_t>(dl * values[qbyte >> 4]);
+        }
+    }
+}
+
 static __device__ __forceinline__ void dequantize_q1_0(const void * vx, const int64_t ib, const int iqs, float2 & v){
     const block_q1_0 * x = (const block_q1_0 *) vx;
 

@@ -1,5 +1,16 @@
 #include "common.cuh"
 
+void ggml_cuda_mul_mat_iq2_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+    const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+void ggml_cuda_mul_mat_iq3_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+void ggml_cuda_mul_mat_iq4_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+void ggml_cuda_mul_mat_iq4_kss(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+void ggml_cuda_mul_mat_iq5_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+
 #define MMVQ_MAX_BATCH_SIZE 8 // Max. batch size for which to use MMVQ kernels.
 
 bool ggml_cuda_should_use_mmvq(enum ggml_type type, int cc, int64_t ne11);

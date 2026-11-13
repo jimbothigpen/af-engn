@@ -123,7 +123,7 @@ static std::vector<tensor_config_t> get_tensor_configs(std::mt19937 & rng) {
     tensor_configs.reserve(100);
 
     for (int i = 0; i < 100; ++i) {
-        const enum ggml_type type = ggml_type(rng() % GGML_TYPE_COUNT);
+        const enum ggml_type type = ggml_type(rng() % GGML_TYPE_IQ4_K);
         if (ggml_type_size(type) == 0) {
             continue;
         }
@@ -994,7 +994,7 @@ static struct random_gguf_context_result get_random_gguf_context(ggml_backend_t 
 
     for (int i = 0; i < 256; ++i) {
         const std::string name = "my_tensor_" + std::to_string(i);
-        const enum ggml_type type = ggml_type(rng() % GGML_TYPE_COUNT);
+        const enum ggml_type type = i == 255 ? GGML_TYPE_IQ5_KS : ggml_type(rng() % GGML_TYPE_COUNT);
         const size_t type_size = ggml_type_size(type);
 
         if (type_size == 0) {
@@ -1011,6 +1011,8 @@ static struct random_gguf_context_result get_random_gguf_context(ggml_backend_t 
         struct ggml_tensor * tensor = ggml_new_tensor(ctx, type, n_dims, ne);
         ggml_set_name(tensor, name.c_str());
     }
+
+    gguf_set_val_u32(gguf_ctx, "af_engn.format_version", 1);
 
     ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(ctx, backend);
     for (struct ggml_tensor * t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {

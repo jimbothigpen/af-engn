@@ -2783,6 +2783,170 @@ if (shift == 8) { qs += 32; shift = 0; }
 }
 }
 
+void dequantize_row_iq2_ks(const block_iq2_ks * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+    static const int8_t iq2nl_values[8] = { -31, -13, 1, 17, -26, -8, 6, 22 };
+
+    const ggml_half * dptr = (const ggml_half *)x;
+    const float d = GGML_FP16_TO_FP32(*dptr);
+    x = (const block_iq2_ks *)(dptr + 1);
+
+    for (int i = 0; i < nb; i++) {
+        const uint8_t * qs = x[i].qs;
+        uint16_t extra = x[i].extra;
+        int shift = 0;
+        for (int ib64 = 0; ib64 < QK_K/64; ++ib64) {
+            float dl1 = d * (((x[i].scales[ib64] & 0xf) | ((extra >> 4) & 0x10)) - 16);
+            float dl2 = d * (((x[i].scales[ib64] >>  4) | ((extra >> 5) & 0x10)) - 16);
+            const int8_t * values1 = extra & 1 ? iq2nl_values + 4 : iq2nl_values;
+            const int8_t * values2 = extra & 2 ? iq2nl_values + 4 : iq2nl_values;
+            extra >>= 2;
+            for (int j = 0; j < 32; ++j) {
+                y[j + 0]  = dl1 * values1[(qs[j] >> (shift + 0)) & 3];
+                y[j + 32] = dl2 * values2[(qs[j] >> (shift + 2)) & 3];
+            }
+            y += 64;
+            shift += 4;
+            if (shift == 8) { qs += 32; shift = 0; }
+        }
+    }
+}
+
+void dequantize_row_iq3_ks(const block_iq3_ks * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+    const int kBlockSize = 32;
+    static const int8_t iq3nl_values[16] = {
+        -63, -40, -23, -10,  1, 13, 28, 47,
+        -59, -36, -19,  -6,  5, 17, 32, 51
+    };
+
+    const ggml_half * dptr = (const ggml_half *)x;
+    const float d = GGML_FP16_TO_FP32(*dptr);
+    x = (const block_iq3_ks *)(dptr + 1);
+
+    float dl[8];
+    for (int ibl = 0; ibl < nb; ++ibl) {
+        for (int j = 0; j < 4; ++j) {
+            int ls1 = (x[ibl].scales[j] & 0xf) | (((x[ibl].extra >> (j+0)) & 1) << 4);
+            int ls2 = (x[ibl].scales[j] >>  4) | (((x[ibl].extra >> (j+4)) & 1) << 4);
+            dl[j+0] = d*(ls1 - 16);
+            dl[j+4] = d*(ls2 - 16);
+        }
+        const uint8_t * qs = x[ibl].qs;
+        const uint8_t * qh = x[ibl].qh;
+        for (int i128 = 0; i128 < QK_K/128; ++i128) {
+            for (int ib = 0; ib < 4; ++ib) {
+                const int8_t * values = iq3nl_values + (((x[ibl].extra >> (8 + (4*i128+ib))) & 1) << 3);
+                for (int j = 0; j < kBlockSize; ++j) {
+                    y[j] = dl[4*i128 + ib] * values[((qs[j] >> (2*ib)) & 3) | (((qh[j] >> (4*i128+ib)) & 1) << 2)];
+                }
+                y += kBlockSize;
+            }
+            qs += kBlockSize;
+        }
+    }
+}
+
+void dequantize_row_iq4_ks(const block_iq4_ks * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+static const int8_t iq4k_values[32] = {
+-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+-123, -100, -79, -61, -45, -31, -18,  -6, 5, 17, 29, 42, 57, 73, 93, 117,
+};
+assert(k % QK_K == 0);
+
+float d;
+memcpy(&d, x, sizeof(d));
+const uint8_t * row = (const uint8_t *) x + sizeof(d);
+const block_iq4_ks * blocks = (const block_iq4_ks *) row;
+const int64_t nb = k / QK_K;
+
+for (int64_t ibl = 0; ibl < nb; ++ibl) {
+const uint8_t * qs = blocks[ibl].qs;
+for (int g = 0; g < QK_K/32; ++g) {
+const uint8_t scale = blocks[ibl].scales[g];
+const float dl = d * ((int) (scale & 254) - 127);
+const int8_t * values = iq4k_values + ((scale & 1) << 4);
+for (int j = 0; j < 16; ++j) {
+const uint8_t q = qs[j];
+y[j]      = dl * values[q & 0xf];
+y[j + 16] = dl * values[q >> 4];
+}
+y += 32;
+qs += 16;
+}
+}
+}
+
+void dequantize_row_iq5_ks(const block_iq5_ks * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    static const int8_t iq5nl_values[64] = {
+        -126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6,
+        -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+        -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,
+        1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123,
+    };
+
+    assert(k % QK_K == 0);
+
+    float d;
+    memcpy(&d, x, sizeof(d));
+    const uint8_t * row = (const uint8_t *) x + sizeof(d);
+    const block_iq5_ks * blocks = (const block_iq5_ks *) row;
+    const int64_t nb = k / QK_K;
+
+    for (int64_t b = 0; b < nb; ++b) {
+        const block_iq5_ks * block = &blocks[b];
+        for (int g = 0; g < QK_K/64; ++g) {
+            for (int h = 0; h < 2; ++h) {
+                const uint8_t scale = block->scales[2*g + h];
+                const float dl = d * ((int) (scale & 254) - 127);
+                const int8_t * values = iq5nl_values + ((scale & 1) << 5);
+                for (int j = 0; j < 32; ++j) {
+                    const int code = ((block->qs[32*g + j] >> (4*h)) & 15) |
+                                     (((block->qh[j] >> (2*g + h)) & 1) << 4);
+                    y[64*g + 32*h + j] = dl * values[code];
+                }
+            }
+        }
+        y += QK_K;
+    }
+}
+
+void dequantize_row_iq4_kss(const block_iq4_kss * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+static const int8_t iq4k_values[32] = {
+-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+-123, -100, -79, -61, -45, -31, -18,  -6, 5, 17, 29, 42, 57, 73, 93, 117,
+};
+assert(k % QK_K == 0);
+
+float d;
+memcpy(&d, x, sizeof(d));
+const uint8_t * row = (const uint8_t *) x + sizeof(d);
+const int64_t nb = k / QK_K;
+
+for (int64_t b = 0; b < nb; ++b) {
+const uint8_t * qs = row + b * sizeof(block_iq4_kss);
+for (int g = 0; g < QK_K/32; ++g) {
+uint16_t u[8];
+uint8_t ls = 0;
+for (int lane = 0; lane < 8; ++lane) {
+memcpy(&u[lane], qs + 16*g + 2*lane, sizeof(u[lane]));
+ls |= (u[lane] & 1) << lane;
+}
+const float dl = d * ((int) (ls & 254) - 127);
+const int8_t * values = iq4k_values + ((ls & 1) << 4);
+for (int j = 0; j < 16; ++j) {
+const uint16_t a = (u[j/2] & 65534) ^ ((u[j/2] & 65534) >> 1);
+const uint8_t byte = a >> (8 * (j % 2));
+y[32*g + j]      = dl * values[byte & 0xf];
+y[32*g + 16 + j] = dl * values[byte >> 4];
+}
+}
+y += QK_K;
+}
+}
+
 void dequantize_row_iq4_k(const block_iq4_k * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     static const int8_t values[32] = {
         -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,

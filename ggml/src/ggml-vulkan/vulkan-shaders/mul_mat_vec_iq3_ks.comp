@@ -1,0 +1,59 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+const int kvalues_iq3_ks[16] = int[16](-63, -40, -23, -10, 1, 13, 28, 47, -59, -36, -19, -6, 5, 17, 32, 51);
+
+uint read_u16(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8);
+}
+
+void compute_outputs(uint first_row, uint num_rows) {
+uint a_offset, b_offset, d_offset;
+get_offsets(a_offset, b_offset, d_offset);
+const uint nb = p.ncols / 256;
+const uint row_bytes = 2 + nb * 102;
+const uint tid = gl_LocalInvocationID.x;
+const uint t = tid % 8;
+const uint jbase = t / 4;
+const uint h = t % 4;
+for (uint j = 0; j < NUM_COLS; ++j) {
+for (uint n = 0; n < NUM_ROWS; ++n) {
+temp[j][n] = FLOAT_TYPE(0);
+}
+}
+for (uint i = tid / 8; i < nb; i += gl_WorkGroupSize.x / 8) {
+for (uint n = 0; n < num_rows; ++n) {
+const uint row_offset = (a_offset / nb + first_row + n) * row_bytes;
+const uint block_offset = row_offset + 2 + i * 102;
+const uint extra = read_u16(block_offset);
+const uint scales = uint(data_a[block_offset + 2 + h]);
+const uint scale = ((scales >> (4 * jbase)) & 15) | (((extra >> t) & 1) << 4);
+const uint table = ((extra >> (8 + t)) & 1) * 8;
+const float d = unpackHalf2x16(read_u16(row_offset)).x * float(int(scale) - 16);
+const uint qs_offset = block_offset + 6 + 32 * jbase;
+const uint qh_offset = block_offset + 70;
+for (uint j = 0; j < NUM_COLS; ++j) {
+FLOAT_TYPE sum = FLOAT_TYPE(0);
+for (uint lane = 0; lane < 32; ++lane) {
+const uint code = ((uint(data_a[qs_offset + lane]) >> (2 * h)) & 3) | (((uint(data_a[qh_offset + lane]) >> t) & 1) << 2);
+const uint b_index = j * p.batch_stride_b + b_offset + i * 256 + t * 32 + lane;
+sum = fma(FLOAT_TYPE(data_b[b_index]), FLOAT_TYPE(kvalues_iq3_ks[table + code]), sum);
+}
+temp[j][n] = fma(FLOAT_TYPE(d), sum, temp[j][n]);
+}
+}
+}
+reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+if (first_row >= p.stride_d) {
+return;
+}
+compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

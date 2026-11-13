@@ -1,0 +1,37 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+const int kvalues_iq5_ks[64] = int[64](-126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6, -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121, -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4, 1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123);
+
+uint read_u32(uint offset) {
+return uint(data_a_bytes[offset]) | (uint(data_a_bytes[offset + 1]) << 8) | (uint(data_a_bytes[offset + 2]) << 16) | (uint(data_a_bytes[offset + 3]) << 24);
+}
+
+void main() {
+const uint ib = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x / 8;
+if (ib >= p.nel / 256) {
+return;
+}
+const uint nb = p.K / 256;
+const uint row_offset = (ib / nb) * (4 + nb * 168);
+const uint block_offset = row_offset + 4 + (ib % nb) * 168;
+const uint t = gl_LocalInvocationID.x % 8;
+const uint g = t / 2;
+const uint h = t % 2;
+const uint scale = uint(data_a_bytes[block_offset + t]);
+const float d = uintBitsToFloat(read_u32(row_offset));
+const float dl = d * float(int(scale & 254) - 127);
+const uint page = (scale & 1) << 5;
+for (uint j = 0; j < 32; ++j) {
+const uint q = ((uint(data_a_bytes[block_offset + 8 + 32 * g + j]) >> (4 * h)) & 15) | (((uint(data_a_bytes[block_offset + 136 + j]) >> t) & 1) << 4);
+data_b[256 * ib + 32 * t + j] = D_TYPE(dl * float(kvalues_iq5_ks[page + q]));
+}
+}
