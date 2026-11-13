@@ -438,8 +438,13 @@ extern "C" {
         GGML_TYPE_IQ3_K   = 46,
         GGML_TYPE_IQ5_K   = 47,
         GGML_TYPE_IQ6_K   = 48,
+        GGML_TYPE_IQ2_KS  = 49,
+        GGML_TYPE_IQ3_KS  = 50,
+        GGML_TYPE_IQ4_KS  = 51,
+GGML_TYPE_IQ4_KSS = 52,
+GGML_TYPE_IQ5_KS  = 53,
+GGML_TYPE_COUNT   = 54,
 
-        GGML_TYPE_COUNT   = 49,
     };
 
     // [TAG_GGML_PREC]
@@ -770,6 +775,7 @@ extern "C" {
     GGML_API int64_t ggml_blck_size(enum ggml_type type);
     GGML_API size_t  ggml_type_size(enum ggml_type type);             // size in bytes for all elements in a block
     GGML_API size_t  ggml_row_size (enum ggml_type type, int64_t ne); // size in bytes for all elements in a row
+    GGML_API int64_t ggml_row_meta_size(enum ggml_type type); // per-row metadata size in bytes
 
     GGML_DEPRECATED(
     GGML_API double ggml_type_sizef(enum ggml_type type), // ggml_type_size()/ggml_blck_size() as float
@@ -3049,6 +3055,7 @@ extern "C" {
         bool                     is_quantized;
         ggml_to_float_t          to_float;
         ggml_from_float_t        from_float_ref;
+        int64_t                  row_meta_size; // per-row metadata bytes prefixing each row (0 for standard types)
     };
 
     GGML_API const struct ggml_type_traits * ggml_get_type_traits(enum ggml_type type);

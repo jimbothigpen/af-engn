@@ -1,0 +1,38 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "types.glsl"
+#include "generic_binary_head.glsl"
+
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+
+const int kvalues_iq5_ks[64] = int[64](-126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6, -1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121, -124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4, 1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123);
+
+uint read_u32(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8) | (uint(data_a[offset + 2]) << 16) | (uint(data_a[offset + 3]) << 24);
+}
+
+void main() {
+const uint col = gl_GlobalInvocationID.x;
+if (col >= p.ne00) {
+return;
+}
+for (uint z = gl_GlobalInvocationID.z; z < p.ne11 * p.ne12; z += gl_NumWorkGroups.z) {
+for (uint y = gl_GlobalInvocationID.y; y < p.ne10; y += gl_NumWorkGroups.y) {
+const uint i11 = z / p.ne12;
+const uint i12 = z % p.ne12;
+const uint row = uint(data_b[get_boffset() + y * p.nb10 + i11 * p.nb11 + i12 * p.nb12]);
+const uint row_offset = get_aoffset() + row * p.nb01 + i11 * p.nb02 + i12 * p.nb03;
+const uint block_offset = row_offset + 4 + (col / 256) * 168;
+const uint t = (col % 256) / 32;
+const uint g = t / 2;
+const uint h = t % 2;
+const uint j = col % 32;
+const uint scale = uint(data_a[block_offset + t]);
+const uint q = ((uint(data_a[block_offset + 8 + 32 * g + j]) >> (4 * h)) & 15) | (((uint(data_a[block_offset + 136 + j]) >> t) & 1) << 4);
+const uint dst = get_doffset() + y * p.nb21 + i11 * p.nb22 + i12 * p.nb23 + col;
+data_d[dst] = D_TYPE(uintBitsToFloat(read_u32(row_offset)) * float(int(scale & 254) - 127) * float(kvalues_iq5_ks[((scale & 1) << 5) + q]));
+}
+}
+}

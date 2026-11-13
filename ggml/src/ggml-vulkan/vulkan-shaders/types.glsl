@@ -1874,6 +1874,175 @@ struct block_iq2_k_packed32
 #define A_TYPE_PACKED32 block_iq2_k_packed32
 #endif
 
+#define QUANT_K_IQ2_KS 256
+#define QUANT_R_IQ2_KS 1
+
+// IQ2_KS: row-level d is in a 2-byte prefix (row_meta_size=2), not in the block.
+// The block struct holds only per-block data. Byte-level SSBO addressing
+// is used in the shaders to handle the row prefix.
+struct block_iq2_ks
+{
+    uint16_t extra;
+    uint8_t scales[4];
+    uint8_t qs[64];
+};
+
+struct block_iq2_ks_packed16
+{
+    uint16_t extra;
+    uint16_t scales[2];
+    uint16_t qs[32];
+};
+
+struct block_iq2_ks_packed32
+{
+    uint16_t extra;
+    uint32_t scales;
+    uint32_t qs[16];
+};
+
+#if defined(DATA_A_IQ2_KS)
+#define QUANT_K QUANT_K_IQ2_KS
+#define QUANT_R QUANT_R_IQ2_KS
+// IQ2_KS has a row-level ggml_half d prefix (2 bytes) before the blocks.
+// Use byte-level SSBO (uint8_t) so shaders can compute byte offsets manually.
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
+#define QUANT_K_IQ3_KS 256
+#define QUANT_R_IQ3_KS 1
+
+struct block_iq3_ks
+{
+uint16_t extra;
+uint8_t scales[4];
+uint8_t qs[64];
+uint8_t qh[32];
+};
+
+struct block_iq3_ks_packed16
+{
+uint16_t extra;
+uint16_t scales[2];
+uint16_t qs[32];
+uint16_t qh[16];
+};
+
+struct block_iq3_ks_packed32
+{
+uint16_t extra;
+uint16_t pad;
+uint32_t scales;
+uint32_t qs[16];
+uint32_t qh[8];
+};
+
+#if defined(DATA_A_IQ3_KS)
+#define QUANT_K QUANT_K_IQ3_KS
+#define QUANT_R QUANT_R_IQ3_KS
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
+#define QUANT_K_IQ4_KS 256
+#define QUANT_R_IQ4_KS 1
+
+#define QUANT_K_IQ4_KSS 256
+#define QUANT_R_IQ4_KSS 1
+#define QUANT_QI_IQ4_KSS 1
+
+// IQ4_KSS has a float32 d prefix (4 bytes) at the start of each row and
+// 128-byte blocks of packed uint32 payload.  Blocks begin immediately after
+// that prefix, so shaders use byte-level SSBO access.
+struct block_iq4_kss
+{
+uint32_t qs[32];
+};
+
+struct block_iq4_kss_packed16
+{
+uint16_t qs[64];
+};
+
+struct block_iq4_kss_packed32
+{
+uint32_t qs[32];
+};
+
+// IQ4_KS has a float32 d prefix (4 bytes) at the start of each row.  Blocks
+// begin immediately after that prefix, so shaders use byte-level SSBO access.
+struct block_iq4_ks
+{
+uint8_t scales[8];
+uint8_t qs[128];
+};
+
+struct block_iq4_ks_packed16
+{
+uint16_t scales[4];
+uint16_t qs[64];
+};
+
+struct block_iq4_ks_packed32
+{
+uint32_t scales[2];
+uint32_t qs[32];
+};
+
+#if defined(DATA_A_IQ4_KS)
+#define QUANT_K QUANT_K_IQ4_KS
+#define QUANT_R QUANT_R_IQ4_KS
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
+#if defined(DATA_A_IQ4_KSS)
+#define QUANT_K QUANT_K_IQ4_KSS
+#define QUANT_R QUANT_R_IQ4_KSS
+#define QUANT_QI QUANT_QI_IQ4_KSS
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
+#define QUANT_K_IQ5_KS 256
+#define QUANT_R_IQ5_KS 1
+#define QUANT_QI_IQ5_KS 1
+
+struct block_iq5_ks
+{
+uint8_t scales[8];
+uint8_t qs[128];
+uint8_t qh[32];
+};
+
+struct block_iq5_ks_packed16
+{
+uint16_t scales[4];
+uint16_t qs[64];
+uint16_t qh[16];
+};
+
+struct block_iq5_ks_packed32
+{
+uint32_t scales[2];
+uint32_t qs[32];
+uint32_t qh[8];
+};
+
+#if defined(DATA_A_IQ5_KS)
+#define QUANT_K QUANT_K_IQ5_KS
+#define QUANT_R QUANT_R_IQ5_KS
+#define QUANT_QI QUANT_QI_IQ5_KS
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ3_K 256
 #define QUANT_R_IQ3_K 1
 

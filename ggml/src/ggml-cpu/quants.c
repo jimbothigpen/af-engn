@@ -207,6 +207,233 @@ void ggml_vec_dot_iq6_k_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const vo
     *s = sum;
 }
 
+void ggml_vec_dot_iq2_ks_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+static const int8_t iq2nl_values[8] = { -31, -13, 1, 17, -26, -8, 6, 22 };
+assert(n % QK_K == 0);
+assert(nrc == 1);
+UNUSED(bs);
+UNUSED(bx);
+UNUSED(by);
+UNUSED(nrc);
+// IQ2_KS rows are prefixed with a 2-byte ggml_half d (row_meta_size = 2).
+// vx points at the row start: [ggml_half d][block_iq2_ks x nb]
+const ggml_half * dptr = (const ggml_half *)vx;
+const float d = GGML_FP16_TO_FP32(*dptr);
+const block_iq2_ks * x = (const block_iq2_ks *)(dptr + 1);
+const block_q8_K   * y = (const block_q8_K *)vy;
+const int nb = n / QK_K;
+float sumf = 0.0f;
+for (int i = 0; i < nb; i++) {
+    const uint8_t * qs = x[i].qs;
+    const int8_t  * q8 = y[i].qs;
+    uint16_t extra = x[i].extra;
+    int sumi = 0;
+    for (int ib128 = 0; ib128 < QK_K/128; ++ib128) {
+        int d1 = (((x[i].scales[2*ib128+0] & 0xf) | ((extra >> 4) & 0x10)) - 16);
+        int d2 = (((x[i].scales[2*ib128+0] >>  4) | ((extra >> 5) & 0x10)) - 16);
+        int d3 = (((x[i].scales[2*ib128+1] & 0xf) | ((extra >> 6) & 0x10)) - 16);
+        int d4 = (((x[i].scales[2*ib128+1] >>  4) | ((extra >> 7) & 0x10)) - 16);
+        const int8_t * values1 = extra & 1 ? iq2nl_values + 4 : iq2nl_values;
+        const int8_t * values2 = extra & 2 ? iq2nl_values + 4 : iq2nl_values;
+        const int8_t * values3 = extra & 4 ? iq2nl_values + 4 : iq2nl_values;
+        const int8_t * values4 = extra & 8 ? iq2nl_values + 4 : iq2nl_values;
+        extra >>= 4;
+        int sumi1 = 0, sumi2 = 0, sumi3 = 0, sumi4 = 0;
+        for (int j = 0; j < 32; ++j) {
+            sumi1 += q8[j +  0] * values1[(qs[j] >> 0) & 3];
+            sumi2 += q8[j + 32] * values2[(qs[j] >> 2) & 3];
+            sumi3 += q8[j + 64] * values3[(qs[j] >> 4) & 3];
+            sumi4 += q8[j + 96] * values4[(qs[j] >> 6) & 3];
+        }
+        sumi += d1*sumi1 + d2*sumi2 + d3*sumi3 + d4*sumi4;
+        q8 += 128;
+        qs +=  32;
+    }
+    sumf += y[i].d * sumi;
+}
+*s = d * sumf;
+}
+
+void ggml_vec_dot_iq3_ks_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+static const int8_t iq3nl_values[16] = {
+-63, -40, -23, -10,  1, 13, 28, 47,
+-59, -36, -19,  -6,  5, 17, 32, 51
+};
+assert(n % QK_K == 0);
+assert(nrc == 1);
+UNUSED(bs);
+UNUSED(bx);
+UNUSED(by);
+UNUSED(nrc);
+// IQ3_KS rows are prefixed with a 2-byte ggml_half d (row_meta_size = 2).
+// vx points at the row start: [ggml_half d][block_iq3_ks x nb]
+const ggml_half * dptr = (const ggml_half *)vx;
+const float d = GGML_FP16_TO_FP32(*dptr);
+const block_iq3_ks * x = (const block_iq3_ks *)(dptr + 1);
+const block_q8_K   * y = (const block_q8_K *)vy;
+const int nb = n / QK_K;
+float sumf = 0.0f;
+for (int i = 0; i < nb; i++) {
+const uint8_t * qs = x[i].qs;
+const uint8_t * qh = x[i].qh;
+const int8_t  * q8 = y[i].qs;
+uint16_t extra = x[i].extra;
+int sumi = 0;
+for (int ib32 = 0; ib32 < QK_K/32; ++ib32) {
+int sg = ib32 / 4;
+int sn = ib32 % 4;
+int ls = ((x[i].scales[sn] >> 4*sg) & 0xf) | (((extra >> ib32) & 1) << 4);
+const int8_t * values = ((extra >> (8 + ib32)) & 1) ? iq3nl_values + 8 : iq3nl_values;
+int sumi32 = 0;
+for (int j = 0; j < 32; ++j) {
+int c = ((qs[j] >> 2*sn) & 3) | (((qh[j] >> ib32) & 1) << 2);
+sumi32 += q8[j] * values[c];
+}
+sumi += (ls - 16) * sumi32;
+q8 += 32;
+if (sn == 3) qs += 32;
+}
+sumf += y[i].d * sumi;
+}
+*s = d * sumf;
+}
+
+void ggml_vec_dot_iq4_ks_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+static const int8_t iq4k_values[32] = {
+-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+-123, -100, -79, -61, -45, -31, -18,  -6, 5, 17, 29, 42, 57, 73, 93, 117,
+};
+assert(n % QK_K == 0);
+assert(nrc == 1);
+UNUSED(bs);
+UNUSED(bx);
+UNUSED(by);
+UNUSED(nrc);
+// IQ4_KS rows are prefixed with a 4-byte float d (row_meta_size = 4).
+// vx points at the row start: [float d][block_iq4_ks x nb]
+float d;
+memcpy(&d, vx, sizeof(d));
+const block_iq4_ks * x = (const block_iq4_ks *)((const char *)vx + sizeof(d));
+const block_q8_K   * y = (const block_q8_K *)vy;
+const int nb = n / QK_K;
+float sumf = 0.0f;
+for (int i = 0; i < nb; i++) {
+const uint8_t * qs = x[i].qs;
+const int8_t  * q8 = y[i].qs;
+for (int ib32 = 0; ib32 < QK_K/32; ++ib32) {
+const uint8_t scale = x[i].scales[ib32];
+const float dl = d * y[i].d * ((int)(scale & 254) - 127);
+const int8_t * values = iq4k_values + ((scale & 1) << 4);
+int32_t sumi = 0;
+for (int j = 0; j < 16; ++j) {
+sumi += q8[j]      * values[qs[j] & 0xf];
+sumi += q8[j + 16] * values[qs[j] >> 4];
+}
+sumf += dl * sumi;
+q8 += 32;
+qs += 16;
+}
+}
+*s = sumf;
+}
+
+void ggml_vec_dot_iq4_kss_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    static const int8_t iq4k_values[32] = {
+        -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+        -123, -100, -79, -61, -45, -31, -18,  -6, 5, 17, 29, 42, 57, 73, 93, 117,
+    };
+
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(bs);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(nrc);
+
+    float d;
+    memcpy(&d, vx, sizeof(d));
+    const block_iq4_kss * x = (const block_iq4_kss *) ((const char *) vx + sizeof(d));
+    const block_q8_K * y = (const block_q8_K *) vy;
+
+    float sumf = 0.0f;
+    for (int i = 0; i < n / QK_K; ++i) {
+        for (int g = 0; g < QK_K / 32; ++g) {
+            uint16_t words[8];
+            uint8_t aux[16];
+            uint8_t ls = 0;
+            const uint8_t * group = (const uint8_t *) x[i].qs + 16*g;
+
+            for (int lane = 0; lane < 8; ++lane) {
+                memcpy(&words[lane], group + 2*lane, sizeof(words[lane]));
+                ls |= (words[lane] & 1) << lane;
+                words[lane] &= 0xfffe;
+                words[lane] ^= words[lane] >> 1;
+                memcpy(aux + 2*lane, &words[lane], sizeof(words[lane]));
+            }
+
+            const float dl = d * y[i].d * ((int) (ls & 254) - 127);
+            const int8_t * values = iq4k_values + ((ls & 1) << 4);
+            const int8_t * q8 = y[i].qs + 32*g;
+            int32_t sumi = 0;
+
+            for (int j = 0; j < 16; ++j) {
+                sumi += q8[j]      * values[aux[j] & 0xf];
+                sumi += q8[j + 16] * values[aux[j] >> 4];
+            }
+            sumf += dl * sumi;
+        }
+    }
+
+    *s = sumf;
+}
+
+void ggml_vec_dot_iq5_ks_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+static const int8_t iq5nl_values[64] = {
+-126, -114, -103, -92, -83, -74, -65, -57, -50, -43, -36, -30, -24, -18, -12, -6,
+-1, 5, 11, 17, 23, 29, 36, 43, 51, 59, 68, 77, 87, 97, 109, 121,
+-124, -112, -101, -90, -81, -72, -63, -55, -48, -41, -34, -28, -22, -16, -10, -4,
+1, 7, 13, 19, 25, 31, 38, 45, 53, 61, 70, 79, 89, 99, 111, 123,
+};
+
+assert(n % QK_K == 0);
+assert(nrc == 1);
+UNUSED(bs);
+UNUSED(bx);
+UNUSED(by);
+UNUSED(nrc);
+
+// IQ5_KS rows are prefixed with a 4-byte float d (row_meta_size = 4).
+// vx points at the row start: [float d][block_iq5_ks x nb]
+float d;
+memcpy(&d, vx, sizeof(d));
+const block_iq5_ks * x = (const block_iq5_ks *)((const char *)vx + sizeof(d));
+const block_q8_K   * y = (const block_q8_K *)vy;
+const int nb = n / QK_K;
+
+float sumf = 0.0f;
+for (int i = 0; i < nb; i++) {
+const uint8_t * qs = x[i].qs;
+const uint8_t * qh = x[i].qh;
+for (int g = 0; g < QK_K/64; ++g) {
+for (int h = 0; h < 2; ++h) {
+const uint8_t scale = x[i].scales[2*g + h];
+const float dl = d * y[i].d * ((int)(scale & 254) - 127);
+const int8_t * values = iq5nl_values + ((scale & 1) << 5);
+const int8_t * q8 = y[i].qs + 64*g + 32*h;
+int32_t sumi = 0;
+for (int j = 0; j < 32; ++j) {
+const int code = ((qs[32*g + j] >> (4*h)) & 15) |
+(((qh[j] >> (2*g + h)) & 1) << 4);
+sumi += q8[j] * values[code];
+}
+sumf += dl * sumi;
+}
+}
+}
+
+*s = sumf;
+}
+
 void ggml_vec_dot_iq3_k_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
 static const int8_t iq3nl_values[16] = {
     -63, -40, -23, -10,  1, 13, 28, 47,

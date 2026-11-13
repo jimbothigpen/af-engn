@@ -210,6 +210,16 @@ add_library(ggml-base
             ggml-iq4-k-encoder.h
             ggml-iq2-k-encoder.cpp
             ggml-iq2-k-encoder.h
+            ggml-iq2-ks-encoder.cpp
+            ggml-iq2-ks-encoder.h
+            ggml-iq3-ks-encoder.cpp
+            ggml-iq3-ks-encoder.h
+            ggml-iq4-ks-encoder.cpp
+            ggml-iq4-ks-encoder.h
+ggml-iq4-kss-encoder.cpp
+ggml-iq5-ks-encoder.cpp
+ggml-iq5-ks-encoder.h
+ggml-iq4-kss-encoder.h
             ggml-iq3-k-encoder.cpp
             ggml-iq3-k-encoder.h
             ggml-iq5-k-encoder.cpp

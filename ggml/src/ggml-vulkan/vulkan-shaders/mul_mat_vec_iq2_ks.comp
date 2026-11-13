@@ -1,0 +1,59 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+const int kvalues_iq2_ks[8] = int[8](-31, -13, 1, 17, -26, -8, 6, 22);
+
+uint read_u16(uint offset) {
+    return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8);
+}
+
+void compute_outputs(uint first_row, uint num_rows) {
+    uint a_offset, b_offset, d_offset;
+    get_offsets(a_offset, b_offset, d_offset);
+    const uint nb = p.ncols / 256;
+    const uint row_bytes = 2 + nb * 70;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint group = tid % 8;
+    const uint ib64 = group / 2;
+    const uint half_group = group % 2;
+    for (uint j = 0; j < NUM_COLS; ++j) {
+        for (uint n = 0; n < NUM_ROWS; ++n) {
+            temp[j][n] = FLOAT_TYPE(0);
+        }
+    }
+    for (uint i = tid / 8; i < nb; i += gl_WorkGroupSize.x / 8) {
+        for (uint n = 0; n < num_rows; ++n) {
+            const uint row_offset = (a_offset / nb + first_row + n) * row_bytes;
+            const uint block_offset = row_offset + 2 + i * 70;
+            const uint extra = read_u16(block_offset) >> (2 * ib64);
+            const uint scales = uint(data_a[block_offset + 2 + ib64]);
+            const uint scale = ((scales >> (4 * half_group)) & 15) | ((extra >> (4 + half_group)) & 16);
+            const uint table = ((extra >> half_group) & 1) * 4;
+            const float d = unpackHalf2x16(read_u16(row_offset)).x * float(int(scale) - 16);
+            const uint qs_offset = block_offset + 6 + (ib64 / 2) * 32;
+            const uint shift = 4 * (ib64 % 2) + 2 * half_group;
+            for (uint j = 0; j < NUM_COLS; ++j) {
+                FLOAT_TYPE sum = FLOAT_TYPE(0);
+                for (uint lane = 0; lane < 32; ++lane) {
+                    const uint code = (uint(data_a[qs_offset + lane]) >> shift) & 3;
+                    const uint b_index = j * p.batch_stride_b + b_offset + i * 256 + group * 32 + lane;
+                    sum = fma(FLOAT_TYPE(data_b[b_index]), FLOAT_TYPE(kvalues_iq2_ks[table + code]), sum);
+                }
+                temp[j][n] = fma(FLOAT_TYPE(d), sum, temp[j][n]);
+            }
+        }
+    }
+    reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+    const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+    if (first_row >= p.stride_d) {
+        return;
+    }
+    compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

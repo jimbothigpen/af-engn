@@ -1,0 +1,40 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+const int kvalues_iq3_ks[16] = int[16](-63, -40, -23, -10, 1, 13, 28, 47, -59, -36, -19, -6, 5, 17, 32, 51);
+
+uint read_u16(uint offset) {
+return uint(data_a_bytes[offset]) | (uint(data_a_bytes[offset + 1]) << 8);
+}
+
+void main() {
+const uint ib = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x / 8;
+if (ib >= p.nel / 256) {
+return;
+}
+const uint nb = p.K / 256;
+const uint row_offset = (ib / nb) * (2 + nb * 102);
+const uint block_offset = row_offset + 2 + (ib % nb) * 102;
+const uint t = gl_LocalInvocationID.x % 8;
+const uint jbase = t / 4;
+const uint h = t % 4;
+const uint extra = read_u16(block_offset);
+const uint scales = uint(data_a_bytes[block_offset + 2 + h]);
+const uint scale = ((scales >> (4 * jbase)) & 15) | (((extra >> t) & 1) << 4);
+const uint table = ((extra >> (8 + t)) & 1) * 8;
+const float d = unpackHalf2x16(read_u16(row_offset)).x * float(int(scale) - 16);
+const uint qs_offset = block_offset + 6 + 32 * jbase;
+const uint qh_offset = block_offset + 70;
+for (uint j = 0; j < 32; ++j) {
+const uint code = ((uint(data_a_bytes[qs_offset + j]) >> (2 * h)) & 3) | (((uint(data_a_bytes[qh_offset + j]) >> t) & 1) << 2);
+data_b[256 * ib + 32 * t + j] = D_TYPE(d * float(kvalues_iq3_ks[table + code]));
+}
+}

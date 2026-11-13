@@ -2261,6 +2261,26 @@ static bool ggml_cuda_should_fuse_mul_mat_q(const ggml_tensor * up, const ggml_t
 }
 
 static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    if (src0->type == GGML_TYPE_IQ2_KS) {
+        ggml_cuda_mul_mat_iq2_ks(ctx, src0, src1, nullptr, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ3_KS) {
+        ggml_cuda_mul_mat_iq3_ks(ctx, src0, src1, nullptr, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ4_KS) {
+        ggml_cuda_mul_mat_iq4_ks(ctx, src0, src1, nullptr, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ4_KSS) {
+        ggml_cuda_mul_mat_iq4_kss(ctx, src0, src1, nullptr, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ5_KS) {
+        ggml_cuda_mul_mat_iq5_ks(ctx, src0, src1, nullptr, dst);
+        return;
+    }
     GGML_TENSOR_BINARY_OP_LOCALS
 
     if (ggml_cuda_op_mul_mat_use_fwht(dst) && ggml_cuda_op_fwht(ctx, src1, dst)) {
@@ -2320,6 +2340,13 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
 static bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor * dst, const int cc) {
     const ggml_tensor * src0 = dst->src[0];
     const ggml_tensor * src1 = dst->src[1];
+    if (src0->type == GGML_TYPE_IQ2_KS || src0->type == GGML_TYPE_IQ3_KS || src0->type == GGML_TYPE_IQ4_KS) {
+        return false;
+    }
+    if (src0->type == GGML_TYPE_IQ4_KSS || src0->type == GGML_TYPE_IQ5_KS) {
+        return false;
+    }
+
 
     const int warp_size = ggml_cuda_info().devices[ggml_cuda_get_device()].warp_size;
 
@@ -2352,6 +2379,27 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
     const ggml_tensor * src0 = dst->src[0];
     const ggml_tensor * src1 = dst->src[1];
     const ggml_tensor * ids  = dst->src[2];
+    if (src0->type == GGML_TYPE_IQ2_KS) {
+        ggml_cuda_mul_mat_iq2_ks(ctx, src0, src1, ids, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ3_KS) {
+        ggml_cuda_mul_mat_iq3_ks(ctx, src0, src1, ids, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ4_KS) {
+        ggml_cuda_mul_mat_iq4_ks(ctx, src0, src1, ids, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ4_KSS) {
+        ggml_cuda_mul_mat_iq4_kss(ctx, src0, src1, ids, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ5_KS) {
+        ggml_cuda_mul_mat_iq5_ks(ctx, src0, src1, ids, dst);
+        return;
+    }
+
 
     GGML_ASSERT(src1->type == GGML_TYPE_F32);
     GGML_ASSERT(dst->type  == GGML_TYPE_F32);
@@ -6022,6 +6070,11 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
                     case GGML_TYPE_IQ4_NL:
                     case GGML_TYPE_IQ4_XS:
                     case GGML_TYPE_IQ4_K:
+                    case GGML_TYPE_IQ2_KS:
+case GGML_TYPE_IQ3_KS:
+case GGML_TYPE_IQ4_KS:
+case GGML_TYPE_IQ4_KSS:
+case GGML_TYPE_IQ5_KS:
                     case GGML_TYPE_IQ2_K:
                     case GGML_TYPE_IQ3_K:
                     case GGML_TYPE_IQ5_K:
@@ -6062,6 +6115,11 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
                     case GGML_TYPE_IQ1_M:
                     case GGML_TYPE_IQ4_XS:
                     case GGML_TYPE_IQ4_K:
+                    case GGML_TYPE_IQ2_KS:
+case GGML_TYPE_IQ3_KS:
+case GGML_TYPE_IQ4_KS:
+case GGML_TYPE_IQ4_KSS:
+case GGML_TYPE_IQ5_KS:
                     case GGML_TYPE_IQ2_K:
                     case GGML_TYPE_IQ3_K:
                     case GGML_TYPE_IQ5_K:

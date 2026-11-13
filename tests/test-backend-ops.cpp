@@ -126,10 +126,10 @@ static void init_tensor_uniform(ggml_tensor * tensor, float min = -1.0f, float m
             }
         }
 
-        std::vector<uint8_t> dataq(ggml_row_size(tensor->type, nels));
+        std::vector<uint8_t> dataq(ggml_row_size(tensor->type, tensor->ne[0]) * ggml_nrows(tensor));
         {
             // parallel quantization by block
-            size_t blck_size = ggml_blck_size(tensor->type);
+            size_t blck_size = ggml_row_meta_size(tensor->type) ? tensor->ne[0] : ggml_blck_size(tensor->type);
             size_t n_blocks = nels / blck_size;
 
             auto quantize_thread = [&](size_t start, size_t end) {
@@ -10269,7 +10269,7 @@ static const ggml_type all_types[] = {
     GGML_TYPE_TQ1_0,
     GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ2_XS, GGML_TYPE_IQ2_S,
     GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ1_S, GGML_TYPE_IQ1_M,
-    GGML_TYPE_IQ4_NL, GGML_TYPE_IQ3_S, GGML_TYPE_IQ4_XS, GGML_TYPE_IQ4_K, GGML_TYPE_IQ2_K, GGML_TYPE_IQ3_K, GGML_TYPE_IQ5_K, GGML_TYPE_IQ6_K,
+    GGML_TYPE_IQ4_NL, GGML_TYPE_IQ3_S, GGML_TYPE_IQ4_XS, GGML_TYPE_IQ4_K, GGML_TYPE_IQ2_K, GGML_TYPE_IQ2_KS, GGML_TYPE_IQ3_KS, GGML_TYPE_IQ4_KS, GGML_TYPE_IQ4_KSS, GGML_TYPE_IQ5_KS, GGML_TYPE_IQ3_K, GGML_TYPE_IQ5_K, GGML_TYPE_IQ6_K,
 };
 
 static const ggml_type base_types[] = {
@@ -10284,7 +10284,7 @@ static const ggml_type base_types[] = {
     GGML_TYPE_F8_E4M3,
     GGML_TYPE_IQ2_XXS,
     GGML_TYPE_IQ4_K,
-    GGML_TYPE_IQ2_K,
+    GGML_TYPE_IQ2_K, GGML_TYPE_IQ2_KS, GGML_TYPE_IQ3_KS, GGML_TYPE_IQ4_KS, GGML_TYPE_IQ4_KSS, GGML_TYPE_IQ5_KS,
     GGML_TYPE_IQ3_K,
     GGML_TYPE_IQ5_K,
     GGML_TYPE_IQ6_K

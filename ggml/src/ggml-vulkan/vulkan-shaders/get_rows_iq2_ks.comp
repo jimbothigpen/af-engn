@@ -1,0 +1,40 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "types.glsl"
+#include "generic_binary_head.glsl"
+
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+const int kvalues_iq2_ks[8] = int[8](-31, -13, 1, 17, -26, -8, 6, 22);
+
+uint read_u16(uint offset) {
+    return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8);
+}
+
+void main() {
+    const uint col = gl_GlobalInvocationID.x;
+    if (col >= p.ne00) {
+        return;
+    }
+    for (uint z = gl_GlobalInvocationID.z; z < p.ne11 * p.ne12; z += gl_NumWorkGroups.z) {
+        for (uint y = gl_GlobalInvocationID.y; y < p.ne10; y += gl_NumWorkGroups.y) {
+            const uint i11 = z / p.ne12;
+            const uint i12 = z % p.ne12;
+            const uint row = uint(data_b[get_boffset() + y * p.nb10 + i11 * p.nb11 + i12 * p.nb12]);
+            const uint row_offset = get_aoffset() + row * p.nb01 + i11 * p.nb02 + i12 * p.nb03;
+            const uint block_offset = row_offset + 2 + (col / 256) * 70;
+            const uint group = (col % 256) / 32;
+            const uint ib64 = group / 2;
+            const uint h = group % 2;
+            const uint extra = read_u16(block_offset) >> (2 * ib64);
+            const uint scales = uint(data_a[block_offset + 2 + ib64]);
+            const int scale = int(((scales >> (4 * h)) & 15) | ((extra >> (4 + h)) & 16)) - 16;
+            const uint table = ((extra >> h) & 1) * 4;
+            const uint qs = uint(data_a[block_offset + 6 + (ib64 / 2) * 32 + col % 32]);
+            const uint code = (qs >> (4 * (ib64 % 2) + 2 * h)) & 3;
+            const uint dst = get_doffset() + y * p.nb21 + i11 * p.nb22 + i12 * p.nb23 + col;
+            data_d[dst] = D_TYPE(unpackHalf2x16(read_u16(row_offset)).x * float(scale * kvalues_iq2_ks[table + code]));
+        }
+    }
+}
