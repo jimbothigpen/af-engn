@@ -2533,6 +2533,10 @@ static bool ggml_cuda_should_fuse_mul_mat_q(const ggml_tensor * up, const ggml_t
 }
 
 static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    if (src0->type == GGML_TYPE_IQ1_KT) {
+        ggml_cuda_mul_mat_iq1_kt(ctx, src0, src1, nullptr, dst);
+        return;
+    }
     if (src0->type == GGML_TYPE_IQ2_KS) {
         ggml_cuda_mul_mat_iq2_ks(ctx, src0, src1, nullptr, dst);
         return;
@@ -2624,7 +2628,7 @@ static bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor * dst, const int c
     if (src0->type == GGML_TYPE_IQ2_KS || src0->type == GGML_TYPE_IQ3_KS || src0->type == GGML_TYPE_IQ4_KS) {
         return false;
     }
-    if (src0->type == GGML_TYPE_IQ4_KSS || src0->type == GGML_TYPE_IQ5_KS) {
+    if (src0->type == GGML_TYPE_IQ4_KSS || src0->type == GGML_TYPE_IQ5_KS || src0->type == GGML_TYPE_IQ1_KT) {
         return false;
     }
 
@@ -2666,6 +2670,10 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
     const ggml_tensor * src0 = dst->src[0];
     const ggml_tensor * src1 = dst->src[1];
     const ggml_tensor * ids  = dst->src[2];
+    if (src0->type == GGML_TYPE_IQ1_KT) {
+        ggml_cuda_mul_mat_iq1_kt(ctx, src0, src1, ids, dst);
+        return;
+    }
     if (src0->type == GGML_TYPE_IQ2_KS) {
         ggml_cuda_mul_mat_iq2_ks(ctx, src0, src1, ids, dst);
         return;
@@ -6391,6 +6399,15 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
             if (buft_ctx->device != dev_ctx->device) {
                 return false;
             }
+        }
+    }
+
+    if (op->src[0] && op->src[0]->type == GGML_TYPE_IQ1_KT) {
+        if (op->op == GGML_OP_GET_ROWS) {
+            return op->src[0]->ne[0] > 0 && op->src[0]->ne[0]%32 == 0;
+        }
+        if (op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) {
+            return op->src[0]->ne[0] > 0 && op->src[0]->ne[0]%256 == 0 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
         }
     }
 

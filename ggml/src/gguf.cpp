@@ -739,7 +739,9 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
                 info.t.type = GGML_TYPE_IQ4_KS;
             } else if (wire_type == 1032) {
                 info.t.type = GGML_TYPE_IQ4_KSS;
-            } else if (wire_type == 1033) {
+            } else if (wire_type == 1034) {
+            info.t.type = GGML_TYPE_IQ1_KT;
+        } else if (wire_type == 1033) {
                 info.t.type = GGML_TYPE_IQ5_KS;
             } else if (wire_type < 44 && wire_type != 4 && wire_type != 5 &&
                        !(wire_type >= 31 && wire_type <= 33) &&
@@ -752,7 +754,7 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
                 break;
             }
             const size_t  type_size = ggml_type_size(info.t.type);
-            const int64_t blck_size = ggml_blck_size(info.t.type);
+            const int64_t blck_size = ggml_row_blck_size(info.t.type);
 
             // check that row size is divisible by block size
             if (blck_size == 0 || info.t.ne[0] % blck_size != 0) {
@@ -1446,7 +1448,7 @@ void gguf_set_tensor_type(struct gguf_context * ctx, const char * name, enum ggm
     }
     struct ggml_tensor * tensor = &ctx->info[tensor_id].t;
     const size_t  type_size = ggml_type_size(type);
-    const int64_t blck_size = ggml_blck_size(type);
+    const int64_t blck_size = ggml_row_blck_size(type);
 
     tensor->type = type;
     GGML_ASSERT(tensor->ne[0] % blck_size == 0 && "tensor row size not divisible by block size of new type");
@@ -1578,6 +1580,7 @@ struct gguf_writer_base {
                                    info.t.type == GGML_TYPE_IQ4_KS ? 1031 :
                                    info.t.type == GGML_TYPE_IQ4_KSS ? 1032 :
                                    info.t.type == GGML_TYPE_IQ5_KS ? 1033 :
+                                   info.t.type == GGML_TYPE_IQ1_KT ? 1034 :
                                    static_cast<uint32_t>(info.t.type);
         write(wire_type);
         write(info.offset);
@@ -1705,7 +1708,8 @@ static void gguf_write_out(const struct gguf_context * ctx, writer_t & gw, bool 
             info.t.type == GGML_TYPE_IQ3_K || info.t.type == GGML_TYPE_IQ5_K  ||
             info.t.type == GGML_TYPE_IQ6_K  || info.t.type == GGML_TYPE_IQ2_KS ||
             info.t.type == GGML_TYPE_IQ3_KS || info.t.type == GGML_TYPE_IQ4_KS ||
-info.t.type == GGML_TYPE_IQ4_KSS || info.t.type == GGML_TYPE_IQ5_KS) {
+info.t.type == GGML_TYPE_IQ4_KSS || info.t.type == GGML_TYPE_IQ5_KS ||
+            info.t.type == GGML_TYPE_IQ1_KT) {
             has_custom = true;
         } else if (info.t.type < 0 || info.t.type >= GGML_TYPE_COUNT || ggml_type_size(info.t.type) == 0) {
             throw std::runtime_error("unsupported runtime tensor type");

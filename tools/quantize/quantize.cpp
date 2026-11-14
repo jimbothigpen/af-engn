@@ -69,6 +69,7 @@ static const std::vector<quant_option> QUANT_OPTIONS = {
     { "IQ4_KS", LLAMA_FTYPE_MOSTLY_IQ4_KS, " 4.25 bpw plus row scale", },
     { "IQ4_KSS", LLAMA_FTYPE_MOSTLY_IQ4_KSS, " 4.125 bpw plus row scale", },
     { "IQ5_KS", LLAMA_FTYPE_MOSTLY_IQ5_KS, " 5.25 bpw plus row scale", },
+    { "IQ1_KT", LLAMA_FTYPE_MOSTLY_IQ1_KT, " 1.75 bpw plus row scale", },
     { "IQ3_KS", LLAMA_FTYPE_MOSTLY_IQ3_KS, " 3.19 bpw non-linear quantization plus row scale", },
     { "IQ2_K",    LLAMA_FTYPE_MOSTLY_IQ2_K,    " 2.38 bpw non-linear quantization", },
     { "IQ3_K",    LLAMA_FTYPE_MOSTLY_IQ3_K,    " 3.43 bpw non-linear quantization", },

@@ -270,7 +270,8 @@ extern "C" {
         GGML_TYPE_IQ4_KS  = 51,
 GGML_TYPE_IQ4_KSS = 52,
 GGML_TYPE_IQ5_KS  = 53,
-GGML_TYPE_COUNT   = 54,
+GGML_TYPE_IQ1_KT  = 54,
+GGML_TYPE_COUNT   = 55,
 
     };
 
@@ -604,6 +605,7 @@ GGML_TYPE_COUNT   = 54,
     GGML_API size_t  ggml_nbytes_pad(const struct ggml_tensor * tensor); // same as ggml_nbytes() but padded to GGML_MEM_ALIGN
 
     GGML_API int64_t ggml_blck_size(enum ggml_type type);
+    GGML_API int64_t ggml_row_blck_size(enum ggml_type type);
     GGML_API size_t  ggml_type_size(enum ggml_type type);             // size in bytes for all elements in a block
     GGML_API size_t  ggml_row_size (enum ggml_type type, int64_t ne); // size in bytes for all elements in a row
     GGML_API int64_t ggml_row_meta_size(enum ggml_type type); // per-row metadata size in bytes

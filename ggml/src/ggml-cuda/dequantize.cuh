@@ -1,6 +1,29 @@
 #include "common.cuh"
 #include "convert.cuh"
 
+static __device__ __forceinline__ float iq1_kt_value(const void * row, int64_t i, int64_t width) {
+    const int8_t scales[16] = {-127,-104,-83,-65,-49,-35,-22,-10,1,13,25,38,53,69,89,113};
+    const int64_t b = i/256;
+    const int nt = b < width/256 ? 8 : (width%256)/32;
+    const int ib = (i%256)/32;
+    const int ig = (i%32)/8;
+    const int j = 4*ib+ig;
+    const uint8_t * block = (const uint8_t *)row + 4 + 56*b;
+    const uint8_t * ql = block+8;
+    const uint8_t * qh = ql+4*nt;
+    const int index = ql[j] | (((qh[j%16] >> (4*(j/16))) & 15) << 8) |
+                      (((block[ib] >> (4+ig)) & 1) << 12);
+    uint32_t state = index+4096;
+    for (int k = 0; k <= i%8; ++k) {
+        state *= 0xCBAC1FEDu;
+    }
+    const uint32_t bits = state & 0x3f3f3f3fu;
+    const int q = int((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (bits >> 24)) - 126;
+    float d;
+    memcpy(&d, row, sizeof(d));
+    return (d*scales[block[ib]&15])*q;
+}
+
 static __device__ __forceinline__ float iq2_ks_value(const void * row, int64_t i) {
     const block_iq2_ks & b = ((const block_iq2_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
     const int g = (i % QK_K) / 32;

@@ -443,6 +443,13 @@ uint8_t  qh[QK_K/8];
 static_assert(sizeof(block_iq5_ks) == 168, "wrong iq5_ks block size/padding");
 
 typedef struct {
+uint8_t  sh[QK_K/32];
+uint8_t  ql[QK_K/8];
+uint8_t  qh[QK_K/16];
+} block_iq1_kt;
+static_assert(sizeof(block_iq1_kt) == 56, "wrong iq1_kt block size/padding");
+
+typedef struct {
 uint32_t qs[32];
 } block_iq4_kss;
 static_assert(sizeof(block_iq4_kss) == 128, "wrong iq4_kss block size/padding");
