@@ -24,6 +24,46 @@ static __device__ __forceinline__ float iq1_kt_value(const void * row, int64_t i
     return (d*scales[block[ib]&15])*q;
 }
 
+static __device__ __forceinline__ float iq2_kt_value(const void * row, int64_t i, int64_t width) {
+const int8_t iq4k_values[16] = {-127,-104,-83,-65,-49,-35,-22,-10,1,13,25,38,53,69,89,113};
+float d;
+memcpy(&d, row, sizeof(d));
+const int64_t nb = width/256;
+const int64_t b = i/256;
+float s;
+uint32_t state;
+if (b < nb) {
+const uint8_t * block = (const uint8_t *)row + 4 + 68*b;
+const uint16_t * ql = (const uint16_t *)(block + 4);
+const int in_block = (int)(i%256);
+if (in_block < 128) {
+const int ib = in_block/32;
+const int ig = (in_block%32)/8;
+s = d*iq4k_values[block[ib] & 0xf]*1.05f;
+state = (uint32_t)ql[4*ib + ig] + 4096u;
+} else {
+const int ib = (in_block - 128)/32;
+const int ig = ((in_block - 128)%32)/8;
+s = d*iq4k_values[block[ib] >> 4]*1.05f;
+state = (uint32_t)ql[16 + 4*ib + ig] + 4096u;
+}
+} else {
+const uint8_t * scales = (const uint8_t *)row + 4 + 68*nb;
+const uint16_t * ql = (const uint16_t *)(scales + 4);
+const int64_t it = i - nb*256;
+const int ib = (int)(it/32);
+const int ig = (int)((it%32)/8);
+s = d*iq4k_values[(scales[ib%4] >> (4*(ib/4))) & 0xf]*1.05f;
+state = (uint32_t)ql[4*ib + ig] + 4096u;
+}
+for (int k = 0; k <= (int)(i%8); ++k) {
+state *= 0xCBAC1FEDu;
+}
+const uint32_t bits = state & 0x3f3f3f3fu;
+const int q = int((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (bits >> 24)) - 126;
+return s*q;
+}
+
 static __device__ __forceinline__ float iq2_ks_value(const void * row, int64_t i) {
     const block_iq2_ks & b = ((const block_iq2_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
     const int g = (i % QK_K) / 32;

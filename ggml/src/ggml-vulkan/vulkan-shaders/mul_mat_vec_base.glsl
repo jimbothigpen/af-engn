@@ -31,6 +31,7 @@ layout (push_constant) uniform parameter
     uint ne11;
     uint expert_i1;
     uint nbi1;
+    uint ids_offset;
 #else
     uint base_work_group_y;
     uint ne02;
@@ -64,7 +65,7 @@ void get_offsets(out uint a_offset, out uint b_offset, out uint d_offset) {
         batch_idx_a = i03 * p.ne02 + i02;
     }
 #else
-    const int expert = data_ids[expert_i0 + p.expert_i1 * p.nbi1];
+    const int expert = data_ids[p.ids_offset + expert_i0 + p.expert_i1 * p.nbi1];
     expert_skip = expert == -1;
     expert_id   = expert_skip ? 0 : uint(expert); // clamp, so that the offsets below stay in range
 #endif

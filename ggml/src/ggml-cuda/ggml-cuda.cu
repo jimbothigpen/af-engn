@@ -2537,6 +2537,10 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
         ggml_cuda_mul_mat_iq1_kt(ctx, src0, src1, nullptr, dst);
         return;
     }
+    if (src0->type == GGML_TYPE_IQ2_KT) {
+        ggml_cuda_mul_mat_iq2_kt(ctx, src0, src1, nullptr, dst);
+        return;
+    }
     if (src0->type == GGML_TYPE_IQ2_KS) {
         ggml_cuda_mul_mat_iq2_ks(ctx, src0, src1, nullptr, dst);
         return;
@@ -2628,7 +2632,7 @@ static bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor * dst, const int c
     if (src0->type == GGML_TYPE_IQ2_KS || src0->type == GGML_TYPE_IQ3_KS || src0->type == GGML_TYPE_IQ4_KS) {
         return false;
     }
-    if (src0->type == GGML_TYPE_IQ4_KSS || src0->type == GGML_TYPE_IQ5_KS || src0->type == GGML_TYPE_IQ1_KT) {
+    if (src0->type == GGML_TYPE_IQ4_KSS || src0->type == GGML_TYPE_IQ5_KS || src0->type == GGML_TYPE_IQ1_KT || src0->type == GGML_TYPE_IQ2_KT) {
         return false;
     }
 
@@ -2672,6 +2676,10 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
     const ggml_tensor * ids  = dst->src[2];
     if (src0->type == GGML_TYPE_IQ1_KT) {
         ggml_cuda_mul_mat_iq1_kt(ctx, src0, src1, ids, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_IQ2_KT) {
+        ggml_cuda_mul_mat_iq2_kt(ctx, src0, src1, ids, dst);
         return;
     }
     if (src0->type == GGML_TYPE_IQ2_KS) {
@@ -6411,6 +6419,14 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
         }
     }
 
+    if (op->src[0] && op->src[0]->type == GGML_TYPE_IQ2_KT) {
+        if (op->op == GGML_OP_GET_ROWS) {
+            return op->src[0]->ne[0] > 0 && op->src[0]->ne[0]%32 == 0;
+        }
+        if (op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) {
+            return op->src[0]->ne[0] > 0 && op->src[0]->ne[0]%256 == 0 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+        }
+    }
     switch (op->op) {
         case GGML_OP_UNARY:
             switch (ggml_get_unary_op(op)) {

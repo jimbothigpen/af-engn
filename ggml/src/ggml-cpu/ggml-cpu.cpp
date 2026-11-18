@@ -443,6 +443,10 @@ static bool ggml_backend_cpu_device_supports_op(ggml_backend_dev_t dev, const st
         src0->type == GGML_TYPE_IQ1_KT && src0->ne[0] % 256 != 0) {
         return false;
     }
+    if ((op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) &&
+        src0->type == GGML_TYPE_IQ2_KT && src0->ne[0] % 256 != 0) {
+        return false;
+    }
 
     switch (op->op) {
         case GGML_OP_CPY:

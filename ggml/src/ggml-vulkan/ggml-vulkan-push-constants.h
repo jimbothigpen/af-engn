@@ -5,6 +5,15 @@ uint32_t get_misalign_bytes(const ggml_backend_vk_context * ctx, const ggml_tens
 
 uint32_t ggml_vk_concat_unit_size(ggml_type type);
 
+// Types whose shaders declare the A buffer as a byte array (uint8_t data_a[])
+// instead of an array of block structs. For these the shader reads with byte
+// offsets, so misalign_offsets must carry bytes, not a block index.
+inline bool ggml_vk_is_byte_indexed_a(ggml_type type) {
+    return type == GGML_TYPE_IQ2_KS || type == GGML_TYPE_IQ3_KS || type == GGML_TYPE_IQ4_KS ||
+           type == GGML_TYPE_IQ4_KSS || type == GGML_TYPE_IQ1_KT || type == GGML_TYPE_IQ2_KT ||
+           type == GGML_TYPE_IQ5_KS;
+}
+
 struct vk_mat_mat_push_constants {
     uint32_t M; uint32_t N; uint32_t K;
     uint32_t stride_a; uint32_t stride_b; uint32_t stride_d;
@@ -109,6 +118,7 @@ struct vk_mat_vec_id_push_constants {
     uint32_t ne11;
     uint32_t expert_i1;
     uint32_t nbi1;
+    uint32_t ids_offset;
 };
 
 struct vk_flash_attn_push_constants {
@@ -1187,7 +1197,11 @@ template <> inline void init_pushconst_tensor_offsets(ggml_backend_vk_context * 
 }
 
 template <> inline void init_pushconst_tensor_offsets(ggml_backend_vk_context * ctx, vk_op_binary_push_constants &p, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * src2, const ggml_tensor * src3, ggml_tensor * dst) {
-    const uint32_t a_offset = get_misalign_bytes(ctx, src0) / ggml_type_size(src0->type);
+    // Shaders for byte-indexed quantized types read the A buffer as uint8_t[],
+    // so they need the misalignment in bytes rather than in blocks.
+    const uint32_t a_offset = ggml_vk_is_byte_indexed_a(src0->type)
+        ? get_misalign_bytes(ctx, src0)
+        : get_misalign_bytes(ctx, src0) / ggml_type_size(src0->type);
     const uint32_t b_offset = get_misalign_bytes(ctx, src1) / ggml_type_size(src1->type);
     const uint32_t d_offset = get_misalign_bytes(ctx, dst) / ggml_type_size(dst->type);
 

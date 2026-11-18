@@ -215,6 +215,8 @@ ggml-iq5-ks-encoder.cpp
 ggml-iq5-ks-encoder.h
         ggml-iq1-kt-encoder.cpp
         ggml-iq1-kt-encoder.h
+ggml-iq2-kt-encoder.cpp
+ggml-iq2-kt-encoder.h
 ggml-iq4-kss-encoder.h
             ggml-iq3-k-encoder.cpp
             ggml-iq3-k-encoder.h

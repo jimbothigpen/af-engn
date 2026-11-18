@@ -464,6 +464,44 @@ void ggml_vec_dot_iq1_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
     *s = sum;
 }
 
+void ggml_vec_dot_iq2_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+static const int8_t scales[16] = {-127,-104,-83,-65,-49,-35,-22,-10,1,13,25,38,53,69,89,113};
+assert(n % QK_K == 0 && nrc == 1);
+UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);
+float d;
+memcpy(&d, vx, sizeof(d));
+const block_iq2_kt * x = (const block_iq2_kt *)((const char *)vx + sizeof(d));
+const block_q8_K * y = (const block_q8_K *)vy;
+float sum = 0;
+for (int b = 0; b < n / QK_K; ++b) {
+const uint16_t * ql = (const uint16_t *)x[b].ql;
+const uint16_t * qh = ql + 4*4;
+for (int ib = 0; ib < 4; ++ib) {
+const float sl = d * scales[x[b].scales[ib] & 0xf] * 1.05f * y[b].d;
+const float sh = d * scales[x[b].scales[ib] >> 4] * 1.05f * y[b].d;
+for (int ig = 0; ig < 4; ++ig) {
+uint32_t state = ql[ig] + 4096;
+for (int k = 0; k < 8; ++k) {
+state *= 0xCBAC1FEDu;
+const uint32_t bits = state & 0x3f3f3f3fu;
+const int q = (int)((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (bits >> 24)) - 126;
+sum += sl * q * y[b].qs[32*ib + 8*ig + k];
+}
+state = qh[ig] + 4096;
+for (int k = 0; k < 8; ++k) {
+state *= 0xCBAC1FEDu;
+const uint32_t bits = state & 0x3f3f3f3fu;
+const int q = (int)((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (bits >> 24)) - 126;
+sum += sh * q * y[b].qs[32*ib + 128 + 8*ig + k];
+}
+}
+ql += 4;
+qh += 4;
+}
+}
+*s = sum;
+}
+
 void ggml_vec_dot_iq3_k_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
 static const int8_t iq3nl_values[16] = {
     -63, -40, -23, -10,  1, 13, 28, 47,

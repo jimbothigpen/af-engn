@@ -2971,6 +2971,71 @@ void dequantize_row_iq1_kt(const block_iq1_kt * GGML_RESTRICT x, float * GGML_RE
     }
 }
 
+void dequantize_row_iq2_kt(const block_iq2_kt * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+static const int8_t iq4k_values[16] = {
+-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+};
+
+assert(k % 32 == 0);
+
+float d;
+memcpy(&d, x, sizeof(d));
+
+const int64_t nb = k / QK_K;
+const block_iq2_kt * blocks = (const block_iq2_kt *)((const uint8_t *)x + sizeof(d));
+
+for (int64_t ibl = 0; ibl < nb; ++ibl) {
+const uint16_t * ql = (const uint16_t *)blocks[ibl].ql;
+const uint16_t * qh = ql + 4*4;
+for (int ib = 0; ib < 4; ++ib) {
+const float sl = d * iq4k_values[blocks[ibl].scales[ib] & 0xf] * 1.05f;
+const float sh = d * iq4k_values[blocks[ibl].scales[ib] >> 4] * 1.05f;
+float * yl = y + ibl*QK_K + ib*32;
+float * yh = yl + 128;
+for (int ig = 0; ig < 4; ++ig) {
+uint32_t index = ql[ig] + 4096;
+for (int i = 0; i < 8; ++i) {
+index *= 0xCBAC1FEDu;
+const uint32_t s = index & 0x3f3f3f3fu;
+yl[i] = sl * ((int)(s & 0xff) + (int)((s >> 8) & 0xff) +
+(int)((s >> 16) & 0xff) + (int)(s >> 24) - 126);
+}
+yl += 8;
+index = qh[ig] + 4096;
+for (int i = 0; i < 8; ++i) {
+index *= 0xCBAC1FEDu;
+const uint32_t s = index & 0x3f3f3f3fu;
+yh[i] = sh * ((int)(s & 0xff) + (int)((s >> 8) & 0xff) +
+(int)((s >> 16) & 0xff) + (int)(s >> 24) - 126);
+}
+yh += 8;
+}
+ql += 4;
+qh += 4;
+}
+}
+
+const int nt = (k % QK_K)/32;
+if (nt == 0) return;
+
+const uint8_t * scales = (const uint8_t *)(blocks + nb);
+const uint16_t * ql = (const uint16_t *)(scales + 4);
+y += nb*QK_K;
+for (int ib = 0; ib < nt; ++ib) {
+const float s = d * iq4k_values[(scales[ib%4] >> (4*(ib/4))) & 0xf] * 1.05f;
+for (int ig = 0; ig < 4; ++ig) {
+uint32_t index = ql[4*ib + ig] + 4096;
+for (int i = 0; i < 8; ++i) {
+index *= 0xCBAC1FEDu;
+const uint32_t bits = index & 0x3f3f3f3fu;
+y[i] = s * ((int)(bits & 0xff) + (int)((bits >> 8) & 0xff) +
+(int)((bits >> 16) & 0xff) + (int)(bits >> 24) - 126);
+}
+y += 8;
+}
+}
+}
+
 void dequantize_row_iq4_kss(const block_iq4_kss * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
 static const int8_t iq4k_values[32] = {
 -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
