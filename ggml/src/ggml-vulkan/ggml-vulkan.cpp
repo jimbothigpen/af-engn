@@ -288,6 +288,57 @@ size_t ggml_vk_descriptor_offset(size_t tensor_offset, size_t alignment, size_t 
 
     return descriptor_offset;
 }
+
+// ggml_vk_descriptor_gcd / ggml_vk_descriptor_offset_satisfiable are defined
+// inline in ggml-vulkan-push-constants.h (shared with push-constant init).
+
+// Mirrors the descriptor placement that compute performs for a tensor
+// (ggml_vk_tensor_buffer_offset / ggml_vk_tensor_subbuffer). Returns false when
+// no type-aligned descriptor offset exists and the op must fall back to CPU.
+// byte_indexed_a marks tensors whose shader reads data_a[] as bytes (GET_ROWS
+// src0 of byte-indexed quant types): those bind the descriptor at buffer start
+// and carry the full byte distance in the push constants instead.
+// Tensors that are not allocated yet carry no placement information; the
+// compute-time asserts remain the final guard for those.
+static bool ggml_vk_tensor_placement_supported(const vk_device & device, const ggml_tensor * t, bool byte_indexed_a) {
+    if (t == nullptr || ggml_op_is_empty(t->op)) {
+        return true;
+    }
+    const ggml_backend_buffer_t buffer = t->view_src ? t->view_src->buffer : t->buffer;
+    if (buffer == nullptr || !ggml_backend_buffer_is_vk(buffer)) {
+        return true;
+    }
+    size_t offset = 0;
+    if (device->uma) {
+        vk_buffer host_buf = nullptr;
+        ggml_vk_host_get(device, t->data, host_buf, offset);
+        if (!host_buf) {
+            offset = vk_tensor_offset(t) + t->view_offs;
+        }
+    } else {
+        offset = vk_tensor_offset(t) + t->view_offs;
+    }
+    const size_t alignment = device->properties.limits.minStorageBufferOffsetAlignment;
+    const size_t type_size = ggml_type_size(t->type);
+    if (ggml_vk_descriptor_offset_satisfiable(offset, alignment, type_size)) {
+        return true;
+    }
+    if (!byte_indexed_a) {
+        return false;
+    }
+    // descriptor at buffer start: misalign = offset must fit the 16-bit
+    // a_offset push-constant field, and the bound range (nbytes + misalign)
+    // must fit maxStorageBufferRange unless 64-bit shader indexing is enabled
+    if (offset > 0xFFFF) {
+        return false;
+    }
+    if (!device->shader_64b_indexing &&
+        ggml_nbytes(t) + offset > device->properties.limits.maxStorageBufferRange) {
+        return false;
+    }
+    return true;
+}
+
 uint32_t get_misalign_bytes(const ggml_backend_vk_context * ctx, const ggml_tensor * t) {
     const size_t tensor_offset = ggml_vk_tensor_buffer_offset(ctx, t);
     const size_t descriptor_offset = ggml_vk_descriptor_offset(
@@ -6517,7 +6568,7 @@ case GGML_TYPE_IQ2_K:
 }
 
 vk_subbuffer ggml_vk_tensor_subbuffer(
-    const ggml_backend_vk_context * ctx, const ggml_tensor * tensor, bool allow_misalign) {
+    const ggml_backend_vk_context * ctx, const ggml_tensor * tensor, bool allow_misalign, bool byte_indexed_a) {
 
     vk_buffer buffer = nullptr;
     size_t offset = 0;
@@ -6533,8 +6584,18 @@ vk_subbuffer ggml_vk_tensor_subbuffer(
 
     size_t size = ggml_nbytes(tensor);
 
-    const size_t descriptor_offset = ggml_vk_descriptor_offset(
-        offset, ctx->device->properties.limits.minStorageBufferOffsetAlignment, ggml_type_size(tensor->type));
+    const size_t alignment = ctx->device->properties.limits.minStorageBufferOffsetAlignment;
+    const size_t type_size = ggml_type_size(tensor->type);
+    size_t descriptor_offset;
+    if (byte_indexed_a && !ggml_vk_descriptor_offset_satisfiable(offset, alignment, type_size)) {
+        // Byte-indexed shaders read data_a[] at arbitrary byte offsets, so bind
+        // the descriptor at buffer start and carry the full byte distance in the
+        // push constants (bounded by the 16-bit a_offset field).
+        GGML_ASSERT(offset <= 0xFFFF);
+        descriptor_offset = 0;
+    } else {
+        descriptor_offset = ggml_vk_descriptor_offset(offset, alignment, type_size);
+    }
     const size_t misalign_bytes = offset - descriptor_offset;
     // The shader must support misaligned offsets when indexing into the buffer
     GGML_ASSERT(allow_misalign || misalign_bytes == 0);
@@ -10591,7 +10652,10 @@ static void ggml_vk_op_f32(ggml_backend_vk_context * ctx, vk_context& subctx, co
 
     ggml_pipeline_request_descriptor_sets(ctx, pipeline, 1);
 
-    vk_subbuffer src0_buf = ggml_vk_tensor_subbuffer(ctx, src0, true);
+    // GET_ROWS on byte-indexed quant types reads data_a[] as bytes, so an
+    // unsatisfiable descriptor offset can fall back to binding at buffer start.
+    const bool src0_byte_indexed_a = op == GGML_OP_GET_ROWS && ggml_vk_is_byte_indexed_a(src0->type);
+    vk_subbuffer src0_buf = ggml_vk_tensor_subbuffer(ctx, src0, true, src0_byte_indexed_a);
     vk_subbuffer src1_buf = use_src1 ? ggml_vk_tensor_subbuffer(ctx, src1, true) : vk_subbuffer{};
     vk_subbuffer src2_buf = use_src2 ? ggml_vk_tensor_subbuffer(ctx, src2, true) : vk_subbuffer{};
     vk_subbuffer src3_buf = use_src3 ? ggml_vk_tensor_subbuffer(ctx, src3, true) : vk_subbuffer{};
@@ -16766,6 +16830,23 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
     }
     if (!non_compute && !tensor_size_supported(ggml_nbytes(op))) {
         return false;
+    }
+
+    // Reject ops whose tensor placements admit no type-aligned descriptor
+    // offset (see ggml_vk_descriptor_offset). The scheduler then runs them on
+    // a backend that can handle the placement (CPU fallback). GET_ROWS src0 of
+    // byte-indexed quant types is exempt: its shader reads bytes and the
+    // descriptor can bind at buffer start (ggml_vk_tensor_subbuffer).
+    if (!non_compute) {
+        const bool src0_byte_indexed_a = op->op == GGML_OP_GET_ROWS && ggml_vk_is_byte_indexed_a(op->src[0]->type);
+        for (int i = 0; i < GGML_MAX_SRC; i++) {
+            if (!ggml_vk_tensor_placement_supported(device, op->src[i], i == 0 && src0_byte_indexed_a)) {
+                return false;
+            }
+        }
+        if (!ggml_vk_tensor_placement_supported(device, op, false)) {
+            return false;
+        }
     }
 
     switch (op->op) {

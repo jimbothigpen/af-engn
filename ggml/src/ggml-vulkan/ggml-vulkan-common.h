@@ -87,7 +87,7 @@ vk_subbuffer ggml_vk_subbuffer(const ggml_backend_vk_context* ctx, const vk_buff
 void ggml_vk_sync_buffers(ggml_backend_vk_context* ctx, vk_context& subctx);
 void ggml_vk_set_event(vk_context& ctx, vk::Event& event);
 void ggml_vk_wait_events(vk_context& ctx, std::vector<vk::Event>&& events);
-vk_subbuffer ggml_vk_tensor_subbuffer(const ggml_backend_vk_context * ctx, const ggml_tensor * tensor, bool allow_misalign = false);
+vk_subbuffer ggml_vk_tensor_subbuffer(const ggml_backend_vk_context * ctx, const ggml_tensor * tensor, bool allow_misalign = false, bool byte_indexed_a = false);
 void ggml_vk_cmd_label_begin(vk::CommandBuffer buf, const char * name);
 void ggml_vk_ctx_end(vk_context& ctx);
 void ggml_vk_ctx_begin(vk_device& device, vk_context& subctx);

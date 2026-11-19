@@ -14,6 +14,27 @@ inline bool ggml_vk_is_byte_indexed_a(ggml_type type) {
            type == GGML_TYPE_IQ5_KS;
 }
 
+// Defined in ggml-vulkan.cpp; declared here so push-constant initializers can
+// compute the same buffer offset the descriptor binding uses.
+size_t ggml_vk_tensor_buffer_offset(const ggml_backend_vk_context * ctx, const ggml_tensor * t);
+
+inline size_t ggml_vk_descriptor_gcd(size_t alignment, size_t type_size) {
+    while (type_size != 0) {
+        const size_t rem = alignment % type_size;
+        alignment = type_size;
+        type_size = rem;
+    }
+    return alignment;
+}
+
+// The walk-back in ggml_vk_descriptor_offset adds `alignment` to the misalign
+// distance each step, so the distance modulo gcd(alignment, type_size) is
+// invariant. A type-aligned descriptor exists iff the initial residue is
+// divisible by that gcd; otherwise the walk would reach 0 and assert.
+inline bool ggml_vk_descriptor_offset_satisfiable(size_t tensor_offset, size_t alignment, size_t type_size) {
+    return (tensor_offset % alignment) % ggml_vk_descriptor_gcd(alignment, type_size) == 0;
+}
+
 struct vk_mat_mat_push_constants {
     uint32_t M; uint32_t N; uint32_t K;
     uint32_t stride_a; uint32_t stride_b; uint32_t stride_d;
@@ -1199,9 +1220,21 @@ template <> inline void init_pushconst_tensor_offsets(ggml_backend_vk_context * 
 template <> inline void init_pushconst_tensor_offsets(ggml_backend_vk_context * ctx, vk_op_binary_push_constants &p, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * src2, const ggml_tensor * src3, ggml_tensor * dst) {
     // Shaders for byte-indexed quantized types read the A buffer as uint8_t[],
     // so they need the misalignment in bytes rather than in blocks.
-    const uint32_t a_offset = ggml_vk_is_byte_indexed_a(src0->type)
-        ? get_misalign_bytes(ctx, src0)
-        : get_misalign_bytes(ctx, src0) / ggml_type_size(src0->type);
+    uint32_t a_offset;
+    if (ggml_vk_is_byte_indexed_a(src0->type)) {
+        const size_t tensor_offset = ggml_vk_tensor_buffer_offset(ctx, src0);
+        const size_t alignment = ctx->device->properties.limits.minStorageBufferOffsetAlignment;
+        if (ggml_vk_descriptor_offset_satisfiable(tensor_offset, alignment, ggml_type_size(src0->type))) {
+            a_offset = get_misalign_bytes(ctx, src0);
+        } else {
+            // No type-aligned descriptor exists; ggml_vk_tensor_subbuffer binds
+            // the descriptor at buffer start, so the shader's byte offset is the
+            // full tensor offset (must match the descriptor binding exactly).
+            a_offset = (uint32_t) tensor_offset;
+        }
+    } else {
+        a_offset = get_misalign_bytes(ctx, src0) / ggml_type_size(src0->type);
+    }
     const uint32_t b_offset = get_misalign_bytes(ctx, src1) / ggml_type_size(src1->type);
     const uint32_t d_offset = get_misalign_bytes(ctx, dst) / ggml_type_size(dst->type);
 
