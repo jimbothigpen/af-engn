@@ -153,13 +153,13 @@ static void quantize_row_iq6_k_impl(const float * x, void * vy, int n_per_row, c
                 sumq2_m += w*q*q;
             }
             float best = 0;
-            if (sumq2_p > 0) {
+            if (sumq2_p > 0 && std::isfinite(sumqx_p/sumq2_p)) {
                 d = sumqx_p/sumq2_p;
                 best = d*sumqx_p;
             } else {
                 d = 0;
             }
-            if (sumq2_m > 0 && sumqx_m*sumqx_m > best*sumq2_m) {
+            if (sumq2_m > 0 && std::isfinite(sumqx_m/sumq2_m) && sumqx_m*sumqx_m > best*sumq2_m) {
                 d = sumqx_m/sumq2_m; best = d*sumqx_m;
             }
 
@@ -180,10 +180,10 @@ static void quantize_row_iq6_k_impl(const float * x, void * vy, int n_per_row, c
                     sumqx_m += w*q*xb[j];
                     sumq2_m += w*q*q;
                 }
-                if (sumq2_p > 0 && sumqx_p*sumqx_p > best*sumq2_p) {
+                if (sumq2_p > 0 && std::isfinite(sumqx_p/sumq2_p) && sumqx_p*sumqx_p > best*sumq2_p) {
                     d = sumqx_p/sumq2_p; best = d * sumqx_p; is_shifted = false;
                 }
-                if (sumq2_m > 0 && sumqx_m*sumqx_m > best*sumq2_m) {
+                if (sumq2_m > 0 && std::isfinite(sumqx_m/sumq2_m) && sumqx_m*sumqx_m > best*sumq2_m) {
                     d = sumqx_m/sumq2_m; best = d * sumqx_m; is_shifted = false;
                 }
 
@@ -202,10 +202,10 @@ static void quantize_row_iq6_k_impl(const float * x, void * vy, int n_per_row, c
                     sumqx_m += w*q*xb[j];
                     sumq2_m += w*q*q;
                 }
-                if (sumq2_p > 0 && sumqx_p*sumqx_p > best*sumq2_p) {
+                if (sumq2_p > 0 && std::isfinite(sumqx_p/sumq2_p) && sumqx_p*sumqx_p > best*sumq2_p) {
                     d = sumqx_p/sumq2_p; best = d * sumqx_p; is_shifted = true;
                 }
-                if (sumq2_m > 0 && sumqx_m*sumqx_m > best*sumq2_m) {
+                if (sumq2_m > 0 && std::isfinite(sumqx_m/sumq2_m) && sumqx_m*sumqx_m > best*sumq2_m) {
                     d = sumqx_m/sumq2_m; best = d * sumqx_m; is_shifted = true;
                 }
             }
@@ -222,7 +222,15 @@ static void quantize_row_iq6_k_impl(const float * x, void * vy, int n_per_row, c
                     sumqx += w*q*xb[j];
                     sumq2 += w*q*q;
                 }
-                if (sumq2 > 0) d = sumqx/sumq2;
+                if (sumq2 > 0) {
+                    // Sparse sub-blocks (one dominant value, rest ~0) make sumq2
+                    // underflow to a denormal while sumqx stays finite, so the
+                    // least-squares ratio can be f32-inf. That inf would propagate
+                    // to max_scale and the block fp16 scale (Inf*0 = NaN on dequant).
+                    // Keep the finite pre-refit d when the ratio is not finite.
+                    const float dref = sumqx/sumq2;
+                    if (std::isfinite(dref)) d = dref;
+                }
             }
 
             scales[ib] = d;
@@ -272,7 +280,17 @@ static void quantize_row_iq6_k_impl(const float * x, void * vy, int n_per_row, c
                 }
             }
         }
-        if (sumq2 > 0 && std::isfinite(sumqx/sumq2)) y[ibl].d = GGML_FP32_TO_FP16(fudge*sumqx/sumq2);
+        if (sumq2 > 0) {
+            // The least-squares refit can exceed the fp16 finite range even when
+            // the f32 ratio is finite (integer-rounded scales make sumqx/sumq2
+            // unbounded relative to the input). Storing ±Inf corrupts dequant
+            // (Inf*0 = NaN for zero int8 scales). Keep the pre-refinement fp16-safe
+            // d unless the refit itself is fp16-finite.
+            const float dref = fudge*sumqx/sumq2;
+            if (std::isfinite(dref) && fabsf(dref) <= 65504.0f) {
+                y[ibl].d = GGML_FP32_TO_FP16(dref);
+            }
+        }
     }
 }
 
