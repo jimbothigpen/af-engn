@@ -5673,6 +5673,11 @@ static void ggml_compute_forward_set_rows_impl(
 
     ggml_from_float_t const from_float = ggml_get_type_traits_cpu(dst->type)->from_float;
 
+    // f16 -> f16 copies via memcpy and never call from_float; every other dst type requires an encoder
+    if (from_float == NULL && !(std::is_same_v<src_t, ggml_fp16_t> && dst->type == GGML_TYPE_F16)) {
+        GGML_ABORT("SET_ROWS: type %s has no from_float encoder", ggml_type_name(dst->type));
+    }
+
     for (int64_t i03 = 0; i03 < ne03; ++i03) {
         for (int64_t i02 = 0; i02 < ne02; ++i02) {
             for (int64_t i = ir0; i < ir1; ++i) {

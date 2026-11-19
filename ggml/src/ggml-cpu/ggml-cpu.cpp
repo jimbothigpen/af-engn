@@ -451,14 +451,7 @@ static bool ggml_backend_cpu_device_supports_op(ggml_backend_dev_t dev, const st
     switch (op->op) {
         case GGML_OP_CPY:
         case GGML_OP_SET_ROWS:
-            return
-                op->type != GGML_TYPE_IQ3_XXS &&
-                op->type != GGML_TYPE_IQ3_S   &&
-                op->type != GGML_TYPE_IQ2_XXS &&
-                op->type != GGML_TYPE_IQ2_XS  &&
-                op->type != GGML_TYPE_IQ2_S   &&
-                op->type != GGML_TYPE_IQ1_S   &&
-                op->type != GGML_TYPE_IQ1_M; // missing type_traits.from_float
+            return ggml_get_type_traits_cpu(op->type)->from_float != NULL; // missing type_traits.from_float
         case GGML_OP_MUL_MAT:
             if (ggml_get_op_params_i32(op, 1) == GGML_HINT_SRC0_IS_HADAMARD &&
                 src0->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32) {
