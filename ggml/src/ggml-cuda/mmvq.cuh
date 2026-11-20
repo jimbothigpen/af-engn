@@ -6,6 +6,9 @@ void ggml_cuda_mul_mat_iq1_kt(ggml_backend_cuda_context & ctx, const ggml_tensor
 void ggml_cuda_mul_mat_iq2_kt(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
 const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
 
+void ggml_cuda_mul_mat_iq3_kt(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+
 void ggml_cuda_mul_mat_iq2_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
     const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
 void ggml_cuda_mul_mat_iq3_ks(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,

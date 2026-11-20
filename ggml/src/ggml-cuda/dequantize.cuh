@@ -64,6 +64,58 @@ const int q = int((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (b
 return s*q;
 }
 
+static __device__ __forceinline__ float iq3_kt_value(const void * row, int64_t i, int64_t width) {
+float d;
+memcpy(&d, row, sizeof(d));
+d *= 1.01f;
+const int64_t nb = width/256;
+const int64_t b = i/256;
+float s;
+uint32_t state;
+uint8_t sign_byte;
+int sign_bit;
+if (b < nb) {
+const uint8_t * block = (const uint8_t *)row + 4 + 100*b;
+const uint16_t * ql = (const uint16_t *)(block + 4);
+const int in_block = (int)(i%256);
+if (in_block < 128) {
+const int ib = in_block/32;
+const int ig = (in_block%32)/8;
+s = d*(block[ib] & 0xf);
+state = (uint32_t)ql[4*ib + ig] + 4096u;
+sign_byte = block[68 + ig*8 + (i%8)];
+sign_bit = ib;
+} else {
+const int ib = (in_block - 128)/32;
+const int ig = ((in_block - 128)%32)/8;
+s = d*(block[ib] >> 4);
+state = (uint32_t)ql[16 + 4*ib + ig] + 4096u;
+sign_byte = block[68 + ig*8 + (i%8)];
+sign_bit = ib + 4;
+}
+} else {
+const int64_t nt = (width%256)/32;
+const uint8_t * tail = (const uint8_t *)row + 4 + 100*nb;
+const uint16_t * ql = (const uint16_t *)tail;
+const uint8_t * qh = tail + 8*nt;
+const uint8_t * scales = tail + 12*nt;
+const int64_t it = i - nb*256;
+const int ib = (int)(it/32);
+const int ig = (int)((it%32)/8);
+s = d*((scales[ib/2] >> (4*(ib&1))) & 0xf);
+state = (uint32_t)ql[4*ib + ig] + 4096u;
+sign_byte = qh[4*ib + ig];
+sign_bit = (int)(i%8);
+}
+for (int k = 0; k <= (int)(i%8); ++k) {
+state *= 0xCBAC1FEDu;
+}
+const uint32_t bits = state & 0x3f3f3f3fu;
+const int q = int((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (bits >> 24)) - 126;
+const float v = (sign_byte & (1 << sign_bit)) ? -(float)abs(q) : (float)abs(q);
+return s*v;
+}
+
 static __device__ __forceinline__ float iq2_ks_value(const void * row, int64_t i) {
     const block_iq2_ks & b = ((const block_iq2_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
     const int g = (i % QK_K) / 32;

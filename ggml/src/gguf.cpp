@@ -743,6 +743,8 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
             info.t.type = GGML_TYPE_IQ1_KT;
             } else if (wire_type == 1035) {
             info.t.type = GGML_TYPE_IQ2_KT;
+            } else if (wire_type == 1036) {
+            info.t.type = GGML_TYPE_IQ3_KT;
         } else if (wire_type == 1033) {
                 info.t.type = GGML_TYPE_IQ5_KS;
             } else if (wire_type < 44 && wire_type != 4 && wire_type != 5 &&
@@ -1584,6 +1586,7 @@ struct gguf_writer_base {
                                    info.t.type == GGML_TYPE_IQ5_KS ? 1033 :
                                    info.t.type == GGML_TYPE_IQ1_KT ? 1034 :
                                    info.t.type == GGML_TYPE_IQ2_KT ? 1035 :
+                                   info.t.type == GGML_TYPE_IQ3_KT ? 1036 :
                                    static_cast<uint32_t>(info.t.type);
         write(wire_type);
         write(info.offset);
@@ -1712,7 +1715,8 @@ static void gguf_write_out(const struct gguf_context * ctx, writer_t & gw, bool 
             info.t.type == GGML_TYPE_IQ6_K  || info.t.type == GGML_TYPE_IQ2_KS ||
             info.t.type == GGML_TYPE_IQ3_KS || info.t.type == GGML_TYPE_IQ4_KS ||
 info.t.type == GGML_TYPE_IQ4_KSS || info.t.type == GGML_TYPE_IQ5_KS ||
-            info.t.type == GGML_TYPE_IQ1_KT || info.t.type == GGML_TYPE_IQ2_KT) {
+            info.t.type == GGML_TYPE_IQ1_KT || info.t.type == GGML_TYPE_IQ2_KT ||
+            info.t.type == GGML_TYPE_IQ3_KT) {
             has_custom = true;
         } else if (info.t.type < 0 || info.t.type >= GGML_TYPE_COUNT || ggml_type_size(info.t.type) == 0) {
             throw std::runtime_error("unsupported runtime tensor type");

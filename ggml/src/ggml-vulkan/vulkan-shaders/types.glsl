@@ -2061,6 +2061,15 @@ uint32_t qh[8];
 #define A_TYPE_PACKED32 uint32_t
 #endif
 
+#if defined(DATA_A_IQ3_KT)
+#define QUANT_K 256
+#define QUANT_R 1
+#define QUANT_QI 32
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ3_K 256
 #define QUANT_R_IQ3_K 1
 

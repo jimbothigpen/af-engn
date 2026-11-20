@@ -456,6 +456,13 @@ uint8_t  ql[QK_K/4];
 static_assert(sizeof(block_iq2_kt) == 68, "wrong iq2_kt block size/padding");
 
 typedef struct {
+    uint8_t  scales[QK_K/64];
+    uint8_t  ql[QK_K/4];
+    uint8_t  qh[QK_K/8];
+} block_iq3_kt;
+static_assert(sizeof(block_iq3_kt) == QK_K/4 + QK_K/8 + QK_K/64, "wrong iq3_kt block size/padding");
+
+typedef struct {
 uint32_t qs[32];
 } block_iq4_kss;
 static_assert(sizeof(block_iq4_kss) == 128, "wrong iq4_kss block size/padding");

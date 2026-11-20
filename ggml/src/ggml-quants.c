@@ -3036,6 +3036,83 @@ y += 8;
 }
 }
 
+void dequantize_row_iq3_kt(const block_iq3_kt * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % 32 == 0);
+
+    float d;
+    memcpy(&d, x, sizeof(d));
+    d *= 1.01f;
+
+    const int64_t nb = k / QK_K;
+    const block_iq3_kt * blocks = (const block_iq3_kt *)((const uint8_t *)x + sizeof(d));
+
+    for (int64_t ibl = 0; ibl < nb; ++ibl) {
+        float * yl = y + ibl*QK_K;
+        float * yh = yl + QK_K/2;
+        const uint16_t * qll = (const uint16_t *)blocks[ibl].ql;
+        const uint16_t * qlh = qll + 16;
+        int jj = 0;
+        for (int ib = 0; ib < 4; ++ib) {
+            const float sl = d * (blocks[ibl].scales[ib] & 0xf);
+            const float sh = d * (blocks[ibl].scales[ib] >>  4);
+            const uint8_t l_mask = 1 << ib;
+            const uint8_t h_mask = l_mask << 4;
+            for (int ig = 0; ig < 4; ++ig) {
+                uint32_t xl = qll[jj] + 4096;
+                uint32_t xh = qlh[jj] + 4096;
+                for (int i = 0; i < 8; ++i) {
+                    xl *= 0xCBAC1FEDu;
+                    const uint32_t sl_bits = xl & 0x3f3f3f3fu;
+                    const int sum_l = (int)(sl_bits & 0xff) + (int)((sl_bits >> 8) & 0xff) +
+                                      (int)((sl_bits >> 16) & 0xff) + (int)(sl_bits >> 24) - 126;
+                    yl[i] = sl * abs(sum_l);
+                    if (blocks[ibl].qh[ig*8 + i] & l_mask) {
+                        yl[i] = -yl[i];
+                    }
+
+                    xh *= 0xCBAC1FEDu;
+                    const uint32_t sh_bits = xh & 0x3f3f3f3fu;
+                    const int sum_h = (int)(sh_bits & 0xff) + (int)((sh_bits >> 8) & 0xff) +
+                                      (int)((sh_bits >> 16) & 0xff) + (int)(sh_bits >> 24) - 126;
+                    yh[i] = sh * abs(sum_h);
+                    if (blocks[ibl].qh[ig*8 + i] & h_mask) {
+                        yh[i] = -yh[i];
+                    }
+                }
+                yl += 8;
+                yh += 8;
+                ++jj;
+            }
+        }
+    }
+
+    const int nt = (k % QK_K)/32;
+    if (nt > 0) {
+        const uint8_t * tail = (const uint8_t *)(blocks + nb);
+        const uint16_t * ql = (const uint16_t *)tail;
+        const uint8_t * qh = tail + 8*nt;
+        const uint8_t * scales = tail + 12*nt;
+        y += nb*QK_K;
+        for (int ib = 0; ib < nt; ++ib) {
+            const float s = d * ((scales[ib/2] >> (4*(ib&1))) & 0xf);
+            for (int ig = 0; ig < 4; ++ig) {
+                uint32_t idx = ql[4*ib + ig] + 4096;
+                for (int i = 0; i < 8; ++i) {
+                    idx *= 0xCBAC1FEDu;
+                    const uint32_t s_bits = idx & 0x3f3f3f3fu;
+                    const int sum_val = (int)(s_bits & 0xff) + (int)((s_bits >> 8) & 0xff) +
+                                        (int)((s_bits >> 16) & 0xff) + (int)(s_bits >> 24) - 126;
+                    y[i] = s * abs(sum_val);
+                    if (qh[4*ib + ig] & (1 << i)) {
+                        y[i] = -y[i];
+                    }
+                }
+                y += 8;
+            }
+        }
+    }
+}
+
 void dequantize_row_iq4_kss(const block_iq4_kss * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
 static const int8_t iq4k_values[32] = {
 -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,

@@ -78,6 +78,7 @@ const std::vector<std::string> type_names = {
     "iq5_ks",
     "iq1_kt",
     "iq2_kt",
+    "iq3_kt",
     "iq3_k",
     "iq5_k",
     "iq6_k",
@@ -611,7 +612,7 @@ void matmul_shaders(bool fp16, MatMulIdType matmul_id_type, bool coopmat, bool c
     }
 
     for (const auto& tname : type_names) {
-        if (tname == "bf16" || tname == "iq2_ks" || tname == "iq3_ks" || tname == "iq4_ks" || tname == "iq4_kss" || tname == "iq1_kt" || tname == "iq2_kt" || tname == "iq5_ks" || tname == "iq4_k" || tname == "iq2_k" || tname == "iq3_k" || tname == "iq5_k" || tname == "iq6_k") {
+        if (tname == "bf16" || tname == "iq2_ks" || tname == "iq3_ks" || tname == "iq4_ks" || tname == "iq4_kss" || tname == "iq1_kt" || tname == "iq2_kt" || tname == "iq3_kt" || tname == "iq5_ks" || tname == "iq4_k" || tname == "iq2_k" || tname == "iq3_k" || tname == "iq5_k" || tname == "iq6_k") {
             continue;
         }
 
@@ -868,6 +869,7 @@ if (tname == "iq4_kss") { shader = "get_rows_iq4_kss.comp"; }
 if (tname == "iq5_ks") { shader = "get_rows_iq5_ks.comp"; }
 if (tname == "iq1_kt") { shader = "get_rows_iq1_kt.comp"; }
 if (tname == "iq2_kt") { shader = "get_rows_iq2_kt.comp"; }
+if (tname == "iq3_kt") { shader = "get_rows_iq3_kt.comp"; }
 
         if (tname == "f16") {
             string_to_spv("get_rows_" + tname, shader, merge_maps(base_dict, {{"TEMP_TYPE", "FLOAT_TYPE"}, {data_a_key, "1"}, {"B_TYPE", "int"}, {"D_TYPE", "float16_t"}, {"OPTIMIZATION_ERROR_WORKAROUND", "1"}}));
@@ -1352,7 +1354,7 @@ void write_output_files() {
         }
         hdr << "extern const void * arr_dmmv_"   << tname << "_" << btype << "_f32_data[3];\n";
         hdr << "extern const uint64_t arr_dmmv_" << tname << "_" << btype << "_f32_len[3];\n";
-        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq2_ks" && tname != "iq3_ks" && tname != "iq4_ks" && tname != "iq4_kss" && tname != "iq1_kt" && tname != "iq2_kt" && tname != "iq5_ks" && tname != "iq4_k" && tname != "iq2_k" && tname != "iq3_k" && tname != "iq5_k" && tname != "iq6_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_ks.comp" && tname == "iq2_ks") || (basename(input_filepath) == "mul_mat_vec_iq3_ks.comp" && tname == "iq3_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_ks.comp" && tname == "iq4_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_kss.comp" && tname == "iq4_kss") || (basename(input_filepath) == "mul_mat_vec_iq1_kt.comp" && tname == "iq1_kt") || (basename(input_filepath) == "mul_mat_vec_iq2_kt.comp" && tname == "iq2_kt") || (basename(input_filepath) == "mul_mat_vec_iq5_ks.comp" && tname == "iq5_ks") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq3_k.comp" && tname == "iq3_k") || (basename(input_filepath) == "mul_mat_vec_iq5_k.comp" && tname == "iq5_k") || (basename(input_filepath) == "mul_mat_vec_iq6_k.comp" && tname == "iq6_k")) {
+        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq2_ks" && tname != "iq3_ks" && tname != "iq4_ks" && tname != "iq4_kss" && tname != "iq1_kt" && tname != "iq2_kt" && tname != "iq3_kt" && tname != "iq5_ks" && tname != "iq4_k" && tname != "iq2_k" && tname != "iq3_k" && tname != "iq5_k" && tname != "iq6_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_ks.comp" && tname == "iq2_ks") || (basename(input_filepath) == "mul_mat_vec_iq3_ks.comp" && tname == "iq3_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_ks.comp" && tname == "iq4_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_kss.comp" && tname == "iq4_kss") || (basename(input_filepath) == "mul_mat_vec_iq1_kt.comp" && tname == "iq1_kt") || (basename(input_filepath) == "mul_mat_vec_iq2_kt.comp" && tname == "iq2_kt") || (basename(input_filepath) == "mul_mat_vec_iq3_kt.comp" && tname == "iq3_kt") || (basename(input_filepath) == "mul_mat_vec_iq5_ks.comp" && tname == "iq5_ks") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq3_k.comp" && tname == "iq3_k") || (basename(input_filepath) == "mul_mat_vec_iq5_k.comp" && tname == "iq5_k") || (basename(input_filepath) == "mul_mat_vec_iq6_k.comp" && tname == "iq6_k")) {
             src << "const void * arr_dmmv_"   << tname << "_" << btype << "_f32_data[3] = {mul_mat_vec_" << tname << "_" << btype << "_f32_data, mul_mat_vec_" << tname << "_" << btype << "_f32_subgroup_data, mul_mat_vec_" << tname << "_" << btype << "_f32_subgroup_no_shmem_data};\n";
             src << "const uint64_t arr_dmmv_" << tname << "_" << btype << "_f32_len[3] =  {mul_mat_vec_" << tname << "_" << btype << "_f32_len,  mul_mat_vec_" << tname << "_" << btype << "_f32_subgroup_len, mul_mat_vec_"  << tname << "_" << btype << "_f32_subgroup_no_shmem_len};\n";
         }
@@ -1362,7 +1364,7 @@ void write_output_files() {
         }
         hdr << "extern const void * arr_dmmv_id_"   << tname << "_" << btype << "_f32_data[3];\n";
         hdr << "extern const uint64_t arr_dmmv_id_" << tname << "_" << btype << "_f32_len[3];\n";
-        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq2_ks" && tname != "iq3_ks" && tname != "iq4_ks" && tname != "iq4_kss" && tname != "iq1_kt" && tname != "iq2_kt" && tname != "iq5_ks" && tname != "iq4_k" && tname != "iq2_k" && tname != "iq3_k" && tname != "iq5_k" && tname != "iq6_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_ks.comp" && tname == "iq2_ks") || (basename(input_filepath) == "mul_mat_vec_iq3_ks.comp" && tname == "iq3_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_ks.comp" && tname == "iq4_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_kss.comp" && tname == "iq4_kss") || (basename(input_filepath) == "mul_mat_vec_iq1_kt.comp" && tname == "iq1_kt") || (basename(input_filepath) == "mul_mat_vec_iq2_kt.comp" && tname == "iq2_kt") || (basename(input_filepath) == "mul_mat_vec_iq5_ks.comp" && tname == "iq5_ks") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq3_k.comp" && tname == "iq3_k") || (basename(input_filepath) == "mul_mat_vec_iq5_k.comp" && tname == "iq5_k") || (basename(input_filepath) == "mul_mat_vec_iq6_k.comp" && tname == "iq6_k")) {
+        if ((basename(input_filepath) == "mul_mat_vec.comp" && tname != "iq2_ks" && tname != "iq3_ks" && tname != "iq4_ks" && tname != "iq4_kss" && tname != "iq1_kt" && tname != "iq2_kt" && tname != "iq3_kt" && tname != "iq5_ks" && tname != "iq4_k" && tname != "iq2_k" && tname != "iq3_k" && tname != "iq5_k" && tname != "iq6_k") || (basename(input_filepath) == "mul_mat_vec_iq4_k.comp" && tname == "iq4_k") || (basename(input_filepath) == "mul_mat_vec_iq2_ks.comp" && tname == "iq2_ks") || (basename(input_filepath) == "mul_mat_vec_iq3_ks.comp" && tname == "iq3_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_ks.comp" && tname == "iq4_ks") || (basename(input_filepath) == "mul_mat_vec_iq4_kss.comp" && tname == "iq4_kss") || (basename(input_filepath) == "mul_mat_vec_iq1_kt.comp" && tname == "iq1_kt") || (basename(input_filepath) == "mul_mat_vec_iq2_kt.comp" && tname == "iq2_kt") || (basename(input_filepath) == "mul_mat_vec_iq3_kt.comp" && tname == "iq3_kt") || (basename(input_filepath) == "mul_mat_vec_iq5_ks.comp" && tname == "iq5_ks") || (basename(input_filepath) == "mul_mat_vec_iq2_k.comp" && tname == "iq2_k") || (basename(input_filepath) == "mul_mat_vec_iq3_k.comp" && tname == "iq3_k") || (basename(input_filepath) == "mul_mat_vec_iq5_k.comp" && tname == "iq5_k") || (basename(input_filepath) == "mul_mat_vec_iq6_k.comp" && tname == "iq6_k")) {
             src << "const void * arr_dmmv_id_"   << tname << "_" << btype << "_f32_data[3] = {mul_mat_vec_id_" << tname << "_" << btype << "_f32_data, mul_mat_vec_id_" << tname << "_" << btype << "_f32_subgroup_data, mul_mat_vec_id_" << tname << "_" << btype << "_f32_subgroup_no_shmem_data};\n";
             src << "const uint64_t arr_dmmv_id_" << tname << "_" << btype << "_f32_len[3] =  {mul_mat_vec_id_" << tname << "_" << btype << "_f32_len,  mul_mat_vec_id_" << tname << "_" << btype << "_f32_subgroup_len, mul_mat_vec_id_"  << tname << "_" << btype << "_f32_subgroup_no_shmem_len};\n";
         }
