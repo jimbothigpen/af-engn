@@ -502,6 +502,42 @@ qh += 4;
 *s = sum;
 }
 
+void ggml_vec_dot_iq4_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0 && nrc == 1);
+    UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);
+    float d;
+    memcpy(&d, vx, sizeof(d));
+    d *= 1.0f;
+    const block_iq4_kt * x = (const block_iq4_kt *)((const char *)vx + sizeof(d));
+    const block_q8_K * y = (const block_q8_K *)vy;
+    float sum = 0;
+    for (int b = 0; b < n / QK_K; ++b) {
+        const uint32_t * shb = x[b].qs;
+        const uint8_t  * ql  = (const uint8_t *)(shb + 8);
+        const uint8_t  * qh  = ql + 64;
+        for (int ib = 0; ib < 8; ++ib) {
+            const uint32_t sh = shb[ib];
+            const uint32_t offset = (sh & 1) ? 4096u + 32768u : 4096u;
+            const int ls = (int)((sh & 0xff) >> 1) - 64;
+            const float sl = d * ls * y[b].d;
+            for (int ig = 0; ig < 8; ++ig) {
+                const int jj = ib*8 + ig;
+                uint32_t idx = ql[jj];
+                idx |= ((uint32_t)qh[jj % 32] << (8 - 4*(jj / 32))) & 0xf00u;
+                idx |= ((sh >> (8 + 3*ig)) & 7) << 12;
+                uint32_t state = idx + offset;
+                for (int k = 0; k < 4; ++k) {
+                    state *= 0xCBAC1FEDu;
+                    const uint32_t bits = state & 0x3f3f3f3fu;
+                    const int q = (int)((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (bits >> 24)) - 126;
+                    sum += sl * q * y[b].qs[32*ib + 4*ig + k];
+                }
+            }
+        }
+    }
+    *s = sum;
+}
+
 void ggml_vec_dot_iq3_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0 && nrc == 1);
     UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);

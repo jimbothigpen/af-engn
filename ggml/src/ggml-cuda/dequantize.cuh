@@ -116,6 +116,55 @@ const float v = (sign_byte & (1 << sign_bit)) ? -(float)abs(q) : (float)abs(q);
 return s*v;
 }
 
+// IQ4_KT: 128 B per 256 block. qs bytes 0..8 are shb bank|ls|idx hi3; ql is 64 B at byte 32; qh is 32 B at byte 96.
+// kScale = 1.0f, is_int=true; signed codebook, is_abs=false, 15-bit index, no sign plane.
+static __device__ __forceinline__ float iq4_kt_value(const void * row, int64_t i, int64_t width) {
+float d;
+memcpy(&d, row, sizeof(d));
+d *= 1.0f;
+const int64_t nb = width/256;
+const int64_t b = i/256;
+float s;
+uint32_t state;
+uint32_t offset;
+int ls;
+if (b < nb) {
+const uint8_t * block = (const uint8_t *)row + 4 + 128*b;
+const uint32_t * shb = (const uint32_t *)block;
+const uint8_t * ql = (const uint8_t *)(shb + 8);
+const uint8_t * qh = ql + 64;
+const int in_block = (int)(i%256);
+const int ib = in_block/32;
+const int ig = (in_block%32)/4;
+const int jj = ib*8 + ig;
+const uint32_t sh = shb[ib];
+offset = (sh & 1) ? 4096u + 32768u : 4096u;
+ls = (int)((sh & 0xff) >> 1) - 64;
+s = d*(float)ls;
+state = (uint32_t)ql[jj] + (((uint32_t)qh[jj%32] << (8 - 4*(jj/32))) & 0xf00u)
++ (((sh >> (8 + 3*ig)) & 7) << 12) + offset;
+} else {
+const uint8_t * tail = (const uint8_t *)row + 4 + 128*nb;
+const int64_t it = i - nb*256;
+const int ib = (int)(it/32);
+const int ig = (int)((it%32)/4);
+const uint32_t sh = *(const uint32_t *)(tail + 16*ib);
+const uint8_t * ql = tail + 16*ib + 4;
+const uint8_t * qh = tail + 16*ib + 12;
+offset = (sh & 1) ? 4096u + 32768u : 4096u;
+ls = (int)((sh & 0xff) >> 1) - 64;
+s = d*(float)ls;
+state = (uint32_t)ql[ig] + ((((uint32_t)qh[ig/2] >> (4*(ig&1))) & 0xf) << 8)
++ (((sh >> (8 + 3*ig)) & 7) << 12) + offset;
+}
+for (int k = 0; k <= (int)(i%4); ++k) {
+state *= 0xCBAC1FEDu;
+}
+const uint32_t bits = state & 0x3f3f3f3fu;
+const int q = int((bits & 255) + ((bits >> 8) & 255) + ((bits >> 16) & 255) + (bits >> 24)) - 126;
+return s*(float)q;
+}
+
 static __device__ __forceinline__ float iq2_ks_value(const void * row, int64_t i) {
     const block_iq2_ks & b = ((const block_iq2_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
     const int g = (i % QK_K) / 32;

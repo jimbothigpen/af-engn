@@ -1,0 +1,33 @@
+#version 450
+#include "mul_mat_vec_base.glsl"
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+#include "iq4_kt_values.glsl"
+void main() {
+const uint first_row = NUM_ROWS*(gl_WorkGroupID.x+gl_NumWorkGroups.x*gl_WorkGroupID.z);
+if (first_row >= p.stride_d) {
+return;
+}
+const uint num_rows = min(NUM_ROWS,p.stride_d-first_row);
+uint a_offset,b_offset,d_offset;
+get_offsets(a_offset,b_offset,d_offset);
+const uint nb = p.ncols/256;
+const uint row_bytes = 4+128*nb;
+const uint tid = gl_LocalInvocationID.x;
+for (uint j = 0; j < NUM_COLS; ++j) {
+for (uint n = 0; n < NUM_ROWS; ++n) {
+temp[j][n] = FLOAT_TYPE(0);
+}
+}
+for (uint k = tid; k < p.ncols; k += gl_WorkGroupSize.x) {
+for (uint n = 0; n < num_rows; ++n) {
+const uint row = (a_offset/nb+first_row+n)*row_bytes;
+const FLOAT_TYPE q = FLOAT_TYPE(iq4kt_value(row,k,p.ncols));
+for (uint j = 0; j < NUM_COLS; ++j) {
+const uint b = j*p.batch_stride_b+b_offset+k;
+temp[j][n] = fma(q,FLOAT_TYPE(data_b[b]),temp[j][n]);
+}
+}
+}
+reduce_result(temp,d_offset,first_row,num_rows,tid);
+}

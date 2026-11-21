@@ -13,6 +13,7 @@
 #include "ggml-iq1-kt-encoder.h"
 #include "ggml-iq2-kt-encoder.h"
 #include "ggml-iq3-kt-encoder.h"
+#include "ggml-iq4-kt-encoder.h"
 
 #ifdef GGML_USE_CPU_HBM
 #include <hbwmalloc.h>
@@ -993,6 +994,15 @@ static const struct ggml_type_traits type_traits[GGML_TYPE_COUNT] = {
 .to_float                 = (ggml_to_float_t) dequantize_row_iq3_kt,
 .from_float_ref           = quantize_row_iq3_kt_ref,
 },
+[GGML_TYPE_IQ4_KT] = {
+.type_name                = "iq4_kt",
+.blck_size                = QK_K,
+.type_size                = sizeof(block_iq4_kt),
+.is_quantized             = true,
+.row_meta_size            = 4,
+.to_float                 = (ggml_to_float_t) dequantize_row_iq4_kt,
+.from_float_ref           = quantize_row_iq4_kt_ref,
+},
 [GGML_TYPE_IQ4_NL] = {
         .type_name                = "iq4_nl",
         .blck_size                = QK4_NL,
@@ -1493,6 +1503,12 @@ size_t ggml_row_size(enum ggml_type type, int64_t ne) {
         assert(ne % 32 == 0);
         return GGML_PAD(type_traits[type].row_meta_size + ggml_type_size(type)*(ne/QK_K) + tail, 4);
     }
+    if (type == GGML_TYPE_IQ4_KT) {
+        const int64_t nt = (ne % QK_K)/32;
+        const size_t tail = nt > 0 ? 16*nt : 0;
+        assert(ne % 32 == 0);
+        return GGML_PAD(type_traits[type].row_meta_size + ggml_type_size(type)*(ne/QK_K) + tail, 4);
+    }
     assert(ne % ggml_blck_size(type) == 0);
     return type_traits[type].row_meta_size + ggml_type_size(type)*ne/ggml_blck_size(type);
 }
@@ -1500,7 +1516,7 @@ size_t ggml_row_size(enum ggml_type type, int64_t ne) {
 int64_t ggml_row_blck_size(enum ggml_type type) {
     assert(type >= 0);
     assert(type < GGML_TYPE_COUNT);
-    return (type == GGML_TYPE_IQ1_KT || type == GGML_TYPE_IQ2_KT || type == GGML_TYPE_IQ3_KT) ? 32 : ggml_blck_size(type);
+    return (type == GGML_TYPE_IQ1_KT || type == GGML_TYPE_IQ2_KT || type == GGML_TYPE_IQ3_KT || type == GGML_TYPE_IQ4_KT) ? 32 : ggml_blck_size(type);
 }
 
 int64_t ggml_row_meta_size(enum ggml_type type) {
@@ -8261,6 +8277,7 @@ case GGML_TYPE_IQ4_KSS: result = ggml_quantize_iq4_kss_scalar(src + start, (char
         case GGML_TYPE_IQ1_KT:  result = ggml_quantize_iq1_kt_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_IQ2_KT:  result = ggml_quantize_iq2_kt_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
 case GGML_TYPE_IQ3_KT:  result = ggml_quantize_iq3_kt_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_IQ4_KT:  result = ggml_quantize_iq4_kt_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
 case GGML_TYPE_F16:
             {
                 size_t elemsize = sizeof(ggml_fp16_t);

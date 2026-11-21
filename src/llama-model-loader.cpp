@@ -81,6 +81,7 @@ const char * llama_ftype_name(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_IQ1_KT: name = LLAMA_FTYPE_PREFIX "IQ1_KT - 1.75 bpw plus row scale"; break;
         case LLAMA_FTYPE_MOSTLY_IQ2_KT: name = LLAMA_FTYPE_PREFIX "IQ2_KT - 2.375 bpw plus row scale"; break;
 case LLAMA_FTYPE_MOSTLY_IQ3_KT: name = LLAMA_FTYPE_PREFIX "IQ3_KT - 3.125 bpw plus row scale"; break;
+case LLAMA_FTYPE_MOSTLY_IQ4_KT: name = LLAMA_FTYPE_PREFIX "IQ4_KT - 4.0 bpw plus row scale"; break;
         case LLAMA_FTYPE_MOSTLY_IQ3_KS: name = LLAMA_FTYPE_PREFIX "IQ3_KS - 3.1875 bpw plus row scale"; break;
         case LLAMA_FTYPE_MOSTLY_IQ2_K:     name = LLAMA_FTYPE_PREFIX "IQ2_K - 2.375 bpw"; break;
         case LLAMA_FTYPE_MOSTLY_IQ3_K:     name = LLAMA_FTYPE_PREFIX "IQ3_K - 3.4325 bpw"; break;
@@ -885,6 +886,7 @@ llama_model_loader::llama_model_loader(
             case GGML_TYPE_IQ1_KT: ftype = LLAMA_FTYPE_MOSTLY_IQ1_KT; break;
             case GGML_TYPE_IQ2_KT: ftype = LLAMA_FTYPE_MOSTLY_IQ2_KT; break;
 case GGML_TYPE_IQ3_KT: ftype = LLAMA_FTYPE_MOSTLY_IQ3_KT; break;
+case GGML_TYPE_IQ4_KT: ftype = LLAMA_FTYPE_MOSTLY_IQ4_KT; break;
             case GGML_TYPE_IQ3_KS: ftype = LLAMA_FTYPE_MOSTLY_IQ3_KS; break;
             case GGML_TYPE_IQ2_K:   ftype = LLAMA_FTYPE_MOSTLY_IQ2_K;   break;
             case GGML_TYPE_IQ3_K:   ftype = LLAMA_FTYPE_MOSTLY_IQ3_K;   break;

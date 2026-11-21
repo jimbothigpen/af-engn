@@ -219,6 +219,8 @@ ggml-iq2-kt-encoder.cpp
 ggml-iq2-kt-encoder.h
 ggml-iq3-kt-encoder.cpp
 ggml-iq3-kt-encoder.h
+ggml-iq4-kt-encoder.cpp
+ggml-iq4-kt-encoder.h
 ggml-iq4-kss-encoder.h
             ggml-iq3-k-encoder.cpp
             ggml-iq3-k-encoder.h

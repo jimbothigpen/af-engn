@@ -3036,6 +3036,68 @@ y += 8;
 }
 }
 
+static inline void iq4_kt_set_values(uint32_t idx, float * y, float scale) {
+    for (int i = 0; i < 4; ++i) {
+        idx *= 0xCBAC1FEDu;
+        const uint32_t bits = idx & 0x3f3f3f3fu;
+        const int sum = (int)(bits & 0xff) + (int)((bits >> 8) & 0xff) +
+                        (int)((bits >> 16) & 0xff) + (int)(bits >> 24) - 126;
+        y[i] = scale * sum;
+    }
+}
+
+void dequantize_row_iq4_kt(const block_iq4_kt * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % 32 == 0);
+
+    float d;
+    memcpy(&d, x, sizeof(d));
+    d *= 1.0f;
+
+    const int64_t nb = k / QK_K;
+    const block_iq4_kt * blocks = (const block_iq4_kt *)((const uint8_t *)x + sizeof(d));
+
+    for (int64_t ibl = 0; ibl < nb; ++ibl) {
+        const uint32_t * shb = blocks[ibl].qs;
+        const uint8_t  * ql  = (const uint8_t *)(shb + 8);
+        const uint8_t  * qh  = ql + 64;
+        for (int ib = 0; ib < 8; ++ib) {
+            const uint32_t sh = shb[ib];
+            const uint32_t offset = (sh & 1) ? 4096u + 32768u : 4096u;
+            const int ls = (int)((sh & 0xff) >> 1) - 64;
+            const float sl = d * ls;
+            for (int ig = 0; ig < 8; ++ig) {
+                const int jj = ib*8 + ig;
+                uint32_t idx = ql[jj];
+                idx |= ((uint32_t)qh[jj % 32] << (8 - 4*(jj / 32))) & 0xf00u;
+                idx |= ((sh >> (8 + 3*ig)) & 7) << 12;
+                iq4_kt_set_values(idx + offset, y, sl);
+                y += 4;
+            }
+        }
+    }
+
+    const int nt = (k % QK_K)/32;
+    if (nt > 0) {
+        const uint8_t * tail = (const uint8_t *)(blocks + nb);
+        for (int ib = 0; ib < nt; ++ib) {
+            uint32_t sh;
+            memcpy(&sh, tail + 16*ib, sizeof(sh));
+            const uint8_t * ql = tail + 16*ib + 4;
+            const uint8_t * qh = tail + 16*ib + 12;
+            const uint32_t offset = (sh & 1) ? 4096u + 32768u : 4096u;
+            const int ls = (int)((sh & 0xff) >> 1) - 64;
+            const float sl = d * ls;
+            for (int ig = 0; ig < 8; ++ig) {
+                uint32_t idx = ql[ig];
+                idx |= (((uint32_t)qh[ig/2] >> (4*(ig&1))) & 0xf) << 8;
+                idx |= ((sh >> (8 + 3*ig)) & 7) << 12;
+                iq4_kt_set_values(idx + offset, y, sl);
+                y += 4;
+            }
+        }
+    }
+}
+
 void dequantize_row_iq3_kt(const block_iq3_kt * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % 32 == 0);
 
