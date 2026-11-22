@@ -1,0 +1,79 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+
+// Flattened view of the 32 packed uint16 entries: entry idx holds two
+// signed bytes (lo, hi); table[2*idx+{0,1}] is the decoded pair.
+const int kvalues_iq2_kl[64] = int[64](
+-63, -23, -63, 13, -40, -63, -40, -10,
+-40, 13, -40, 47, -23, -40, -23, -23,
+-23, 1, -23, 13, -23, 28, -10, -63,
+-10, 1, -10, 13, -10, 47, 1, -23,
+1, -10, 1, 1, 1, 13, 1, 28,
+13, -40, 13, -23, 13, -10, 13, 1,
+13, 13, 28, -63, 28, -23, 28, 1,
+28, 28, 28, 47, 47, -23, 47, 13);
+
+uint read_u16(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8);
+}
+
+void compute_outputs(uint first_row, uint num_rows) {
+uint a_offset, b_offset, d_offset;
+get_offsets(a_offset, b_offset, d_offset);
+const uint nb = p.ncols / 256;
+const uint row_bytes = 2 + nb * 86;
+const uint tid = gl_LocalInvocationID.x;
+const uint g = tid % 8;
+const uint ib64 = g / 2;
+const uint half_group = g % 2;
+for (uint j = 0; j < NUM_COLS; ++j) {
+for (uint n = 0; n < NUM_ROWS; ++n) {
+temp[j][n] = FLOAT_TYPE(0);
+}
+}
+for (uint i = tid / 8; i < nb; i += gl_WorkGroupSize.x / 8) {
+for (uint n = 0; n < num_rows; ++n) {
+const uint row_offset = (a_offset / nb + first_row + n) * row_bytes;
+const uint block_offset = row_offset + 2 + i * 86;
+const float d = unpackHalf2x16(read_u16(row_offset)).x;
+const uint scl1 = (uint(data_a[block_offset + 2 + (2 * ib64 + 0) % 4]) >> (4 * (ib64 / 2))) & 0xf;
+const uint sch1 = (read_u16(block_offset) >> (4 * ib64 + 0)) & 3;
+const uint scl2 = (uint(data_a[block_offset + 2 + (2 * ib64 + 1) % 4]) >> (4 * (ib64 / 2))) & 0xf;
+const uint sch2 = (read_u16(block_offset) >> (4 * ib64 + 2)) & 3;
+const float dl1 = d * float(int(scl1 | (sch1 << 4)) - 32);
+const float dl2 = d * float(int(scl2 | (sch2 << 4)) - 32);
+[[unroll]] for (uint lane = 0; lane < 8; ++lane) {
+const uint jj = 8 * half_group + lane;
+const uint qs_val = uint(data_a[block_offset + 6 + 16 * ib64 + jj]);
+const uint qh_val = uint(data_a[block_offset + 70 + jj]);
+const uint idx1 = (qs_val & 0xf) | (((qh_val >> (2 * ib64 + 0)) & 1) << 4);
+const uint idx2 = (qs_val >> 4) | (((qh_val >> (2 * ib64 + 1)) & 1) << 4);
+const float val1a = dl1 * float(kvalues_iq2_kl[2 * idx1 + 0]);
+const float val1b = dl1 * float(kvalues_iq2_kl[2 * idx1 + 1]);
+const float val2a = dl2 * float(kvalues_iq2_kl[2 * idx2 + 0]);
+const float val2b = dl2 * float(kvalues_iq2_kl[2 * idx2 + 1]);
+for (uint j = 0; j < NUM_COLS; ++j) {
+const uint base = j * p.batch_stride_b + b_offset + i * 256 + 64 * ib64;
+temp[j][n] = fma(FLOAT_TYPE(data_b[base + 2 * jj + 0]), FLOAT_TYPE(val1a), temp[j][n]);
+temp[j][n] = fma(FLOAT_TYPE(data_b[base + 2 * jj + 1]), FLOAT_TYPE(val1b), temp[j][n]);
+temp[j][n] = fma(FLOAT_TYPE(data_b[base + 2 * jj + 32]), FLOAT_TYPE(val2a), temp[j][n]);
+temp[j][n] = fma(FLOAT_TYPE(data_b[base + 2 * jj + 33]), FLOAT_TYPE(val2b), temp[j][n]);
+}
+}
+}
+}
+reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+if (first_row >= p.stride_d) {
+return;
+}
+compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

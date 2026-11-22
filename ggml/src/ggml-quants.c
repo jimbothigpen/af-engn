@@ -2813,6 +2813,36 @@ void dequantize_row_iq2_ks(const block_iq2_ks * GGML_RESTRICT x, float * GGML_RE
     }
 }
 
+void dequantize_row_iq2_kl(const block_iq2_kl * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+    const ggml_half * dptr = (const ggml_half *)x;
+    const float d = GGML_FP16_TO_FP32(*dptr);
+    x = (const block_iq2_kl *)(dptr + 1);
+
+    for (int64_t i = 0; i < nb; ++i) {
+        const uint8_t * qs = x[i].qs;
+        const uint8_t * qh = x[i].qh;
+        const uint16_t scales_h = x[i].scales_h;
+        for (int ib64 = 0; ib64 < QK_K/64; ++ib64) {
+            const int ls1 = ((x[i].scales_l[(2*ib64+0)%4] >> (4*(ib64/2))) & 0xf) | (((scales_h >> (4*ib64+0)) & 3) << 4);
+            const int ls2 = ((x[i].scales_l[(2*ib64+1)%4] >> (4*(ib64/2))) & 0xf) | (((scales_h >> (4*ib64+2)) & 3) << 4);
+            const float dl1 = d * (ls1 - 32);
+            const float dl2 = d * (ls2 - 32);
+            for (int j = 0; j < 16; ++j) {
+                const int8_t * val1 = (const int8_t *)(iq2kl_values + ((qs[j] & 0xf) | (((qh[j] >> (2*ib64+0)) & 1) << 4)));
+                const int8_t * val2 = (const int8_t *)(iq2kl_values + ((qs[j] >> 4) | (((qh[j] >> (2*ib64+1)) & 1) << 4)));
+                y[2*j+ 0] = dl1 * val1[0];
+                y[2*j+ 1] = dl1 * val1[1];
+                y[2*j+32] = dl2 * val2[0];
+                y[2*j+33] = dl2 * val2[1];
+            }
+            y += 64;
+            qs += 16;
+        }
+    }
+}
+
 void dequantize_row_iq3_ks(const block_iq3_ks * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;

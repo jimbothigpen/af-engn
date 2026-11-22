@@ -538,6 +538,41 @@ void ggml_vec_dot_iq4_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
     *s = sum;
 }
 
+void ggml_vec_dot_iq2_kl_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);
+    const ggml_half * dptr = (const ggml_half *)vx;
+    const float d = GGML_FP16_TO_FP32(*dptr);
+    const block_iq2_kl * x = (const block_iq2_kl *)(dptr + 1);
+    const block_q8_K   * y = (const block_q8_K *)vy;
+    const int nb = n / QK_K;
+    float sumf = 0.0f;
+    for (int i = 0; i < nb; ++i) {
+        const uint8_t * qs = x[i].qs;
+        const uint8_t * qh = x[i].qh;
+        const int8_t  * q8 = y[i].qs;
+        const uint16_t scales_h = x[i].scales_h;
+        int sumi = 0;
+        for (int ib64 = 0; ib64 < QK_K/64; ++ib64) {
+            const int ls1 = ((x[i].scales_l[(2*ib64+0)%4] >> (4*(ib64/2))) & 0xf) | (((scales_h >> (4*ib64+0)) & 3) << 4);
+            const int ls2 = ((x[i].scales_l[(2*ib64+1)%4] >> (4*(ib64/2))) & 0xf) | (((scales_h >> (4*ib64+2)) & 3) << 4);
+            int sumi1 = 0, sumi2 = 0;
+            for (int j = 0; j < 16; ++j) {
+                const int8_t * val1 = (const int8_t *)(iq2kl_values + ((qs[j] & 0xf) | (((qh[j] >> (2*ib64+0)) & 1) << 4)));
+                const int8_t * val2 = (const int8_t *)(iq2kl_values + ((qs[j] >> 4) | (((qh[j] >> (2*ib64+1)) & 1) << 4)));
+                sumi1 += q8[2*j+ 0] * val1[0] + q8[2*j+ 1] * val1[1];
+                sumi2 += q8[2*j+32] * val2[0] + q8[2*j+33] * val2[1];
+            }
+            sumi += (ls1 - 32) * sumi1 + (ls2 - 32) * sumi2;
+            q8 += 64;
+            qs += 16;
+        }
+        sumf += y[i].d * sumi;
+    }
+    *s = d * sumf;
+}
+
 void ggml_vec_dot_iq3_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0 && nrc == 1);
     UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);

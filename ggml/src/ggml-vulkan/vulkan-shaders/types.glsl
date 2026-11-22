@@ -1947,6 +1947,47 @@ uint32_t qh[8];
 #define A_TYPE_PACKED32 uint32_t
 #endif
 
+#define QUANT_K_IQ2_KL 256
+#define QUANT_R_IQ2_KL 1
+
+// IQ2_KL: row-level d is in a 2-byte fp16 prefix (row_meta_size=2), not in the block.
+// 86-byte blocks per 256 values: uint16 scales_h, 4 bytes scales_l,
+// 64 bytes qs, 16 bytes qh. Byte-level SSBO addressing handles the row prefix.
+struct block_iq2_kl
+{
+uint16_t scales_h;
+uint8_t scales_l[4];
+uint8_t qs[64];
+uint8_t qh[16];
+};
+
+struct block_iq2_kl_packed16
+{
+uint16_t scales_h;
+uint16_t scales_l[2];
+uint16_t qs[32];
+uint16_t qh[8];
+};
+
+struct block_iq2_kl_packed32
+{
+uint16_t scales_h;
+uint16_t pad;
+uint32_t scales_l;
+uint32_t qs[16];
+uint32_t qh[4];
+};
+
+#if defined(DATA_A_IQ2_KL)
+#define QUANT_K QUANT_K_IQ2_KL
+#define QUANT_R QUANT_R_IQ2_KL
+// IQ2_KL has a row-level ggml_half d prefix (2 bytes) before the blocks.
+// Use byte-level SSBO (uint8_t) so shaders can compute byte offsets manually.
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ4_KS 256
 #define QUANT_R_IQ4_KS 1
 

@@ -1,0 +1,57 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+// Flattened view of the 32 packed uint16 entries: entry idx holds two
+// signed bytes (lo, hi); table[2*idx+{0,1}] is the decoded pair.
+const int kvalues_iq2_kl[64] = int[64](
+-63, -23, -63, 13, -40, -63, -40, -10,
+-40, 13, -40, 47, -23, -40, -23, -23,
+-23, 1, -23, 13, -23, 28, -10, -63,
+-10, 1, -10, 13, -10, 47, 1, -23,
+1, -10, 1, 1, 1, 13, 1, 28,
+13, -40, 13, -23, 13, -10, 13, 1,
+13, 13, 28, -63, 28, -23, 28, 1,
+28, 28, 28, 47, 47, -23, 47, 13);
+
+uint read_u16(uint offset) {
+return uint(data_a_bytes[offset]) | (uint(data_a_bytes[offset + 1]) << 8);
+}
+
+void main() {
+const uint ib = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x / 8;
+if (ib >= p.nel / 256) {
+return;
+}
+const uint nb = p.K / 256;
+const uint row_offset = (ib / nb) * (2 + nb * 86);
+const uint block_offset = row_offset + 2 + (ib % nb) * 86;
+const uint g = gl_LocalInvocationID.x % 8;
+const uint ib64 = g / 2;
+const uint half_group = g % 2;
+const float d = unpackHalf2x16(read_u16(row_offset)).x;
+const uint scl1 = (uint(data_a_bytes[block_offset + 2 + (2 * ib64 + 0) % 4]) >> (4 * (ib64 / 2))) & 0xf;
+const uint sch1 = (read_u16(block_offset) >> (4 * ib64 + 0)) & 3;
+const uint scl2 = (uint(data_a_bytes[block_offset + 2 + (2 * ib64 + 1) % 4]) >> (4 * (ib64 / 2))) & 0xf;
+const uint sch2 = (read_u16(block_offset) >> (4 * ib64 + 2)) & 3;
+const float dl1 = d * float(int(scl1 | (sch1 << 4)) - 32);
+const float dl2 = d * float(int(scl2 | (sch2 << 4)) - 32);
+[[unroll]] for (uint lane = 0; lane < 8; ++lane) {
+const uint j = 8 * half_group + lane;
+const uint qs_val = uint(data_a_bytes[block_offset + 6 + 16 * ib64 + j]);
+const uint qh_val = uint(data_a_bytes[block_offset + 70 + j]);
+const uint idx1 = (qs_val & 0xf) | (((qh_val >> (2 * ib64 + 0)) & 1) << 4);
+const uint idx2 = (qs_val >> 4) | (((qh_val >> (2 * ib64 + 1)) & 1) << 4);
+data_b[256 * ib + 64 * ib64 + 2 * j + 0] = D_TYPE(dl1 * float(kvalues_iq2_kl[2 * idx1 + 0]));
+data_b[256 * ib + 64 * ib64 + 2 * j + 1] = D_TYPE(dl1 * float(kvalues_iq2_kl[2 * idx1 + 1]));
+data_b[256 * ib + 64 * ib64 + 2 * j + 32] = D_TYPE(dl2 * float(kvalues_iq2_kl[2 * idx2 + 0]));
+data_b[256 * ib + 64 * ib64 + 2 * j + 33] = D_TYPE(dl2 * float(kvalues_iq2_kl[2 * idx2 + 1]));
+}
+}

@@ -1,0 +1,59 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "types.glsl"
+#include "generic_binary_head.glsl"
+
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+
+// Flattened view of the 32 packed uint16 entries: entry idx holds two
+// signed bytes (lo, hi); table[2*idx+{0,1}] is the decoded pair.
+const int kvalues_iq2_kl[64] = int[64](
+-63, -23, -63, 13, -40, -63, -40, -10,
+-40, 13, -40, 47, -23, -40, -23, -23,
+-23, 1, -23, 13, -23, 28, -10, -63,
+-10, 1, -10, 13, -10, 47, 1, -23,
+1, -10, 1, 1, 1, 13, 1, 28,
+13, -40, 13, -23, 13, -10, 13, 1,
+13, 13, 28, -63, 28, -23, 28, 1,
+28, 28, 28, 47, 47, -23, 47, 13);
+
+uint read_u16(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8);
+}
+
+void main() {
+const uint col = gl_GlobalInvocationID.x;
+if (col >= p.ne00) {
+return;
+}
+for (uint z = gl_GlobalInvocationID.z; z < p.ne11 * p.ne12; z += gl_NumWorkGroups.z) {
+for (uint y = gl_GlobalInvocationID.y; y < p.ne10; y += gl_NumWorkGroups.y) {
+const uint i11 = z / p.ne12;
+const uint i12 = z % p.ne12;
+const uint row = uint(data_b[get_boffset() + y * p.nb10 + i11 * p.nb11 + i12 * p.nb12]);
+const uint row_offset = get_aoffset() + row * p.nb01 + i11 * p.nb02 + i12 * p.nb03;
+const uint block_offset = row_offset + 2 + (col / 256) * 86;
+const uint ib64 = (col % 256) / 64;
+const uint lane = col % 64;
+const uint j = (lane % 32) / 2;
+const uint pair = lane / 32;
+const uint member = lane % 2;
+const uint qs_val = uint(data_a[block_offset + 6 + 16 * ib64 + j]);
+const uint qh_val = uint(data_a[block_offset + 70 + j]);
+const uint idx1 = (qs_val & 0xf) | (((qh_val >> (2 * ib64 + 0)) & 1) << 4);
+const uint idx2 = (qs_val >> 4) | (((qh_val >> (2 * ib64 + 1)) & 1) << 4);
+const float d = unpackHalf2x16(read_u16(row_offset)).x;
+const uint scl1 = (uint(data_a[block_offset + 2 + (2 * ib64 + 0) % 4]) >> (4 * (ib64 / 2))) & 0xf;
+const uint sch1 = (read_u16(block_offset) >> (4 * ib64 + 0)) & 3;
+const uint scl2 = (uint(data_a[block_offset + 2 + (2 * ib64 + 1) % 4]) >> (4 * (ib64 / 2))) & 0xf;
+const uint sch2 = (read_u16(block_offset) >> (4 * ib64 + 2)) & 3;
+const float dl1 = d * float(int(scl1 | (sch1 << 4)) - 32);
+const float dl2 = d * float(int(scl2 | (sch2 << 4)) - 32);
+const float val = (pair == 0) ? dl1 * float(kvalues_iq2_kl[2 * idx1 + member]) : dl2 * float(kvalues_iq2_kl[2 * idx2 + member]);
+const uint dst = get_doffset() + y * p.nb21 + i11 * p.nb22 + i12 * p.nb23 + col;
+data_d[dst] = D_TYPE(val);
+}
+}
+}

@@ -1010,6 +1010,7 @@ ggml_type llama_ftype_get_default_type(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_IQ2_KT: return GGML_TYPE_IQ2_KT;
 case LLAMA_FTYPE_MOSTLY_IQ3_KT: return GGML_TYPE_IQ3_KT;
 case LLAMA_FTYPE_MOSTLY_IQ4_KT: return GGML_TYPE_IQ4_KT;
+        case LLAMA_FTYPE_MOSTLY_IQ2_KL: return GGML_TYPE_IQ2_KL;
         case LLAMA_FTYPE_MOSTLY_IQ3_KS: return GGML_TYPE_IQ3_KS;
         case LLAMA_FTYPE_MOSTLY_IQ2_K:   return GGML_TYPE_IQ2_K;
         case LLAMA_FTYPE_MOSTLY_IQ3_K:   return GGML_TYPE_IQ3_K;
