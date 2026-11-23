@@ -7430,7 +7430,6 @@ static void ggml_vk_mul_mat_q_f16(ggml_backend_vk_context * ctx, vk_context& sub
         mmp_map = ggml_vk_get_mul_mat_mat_pipeline_map(ctx, mmp_type_a, mmp_type_b,
             (src0->type == GGML_TYPE_IQ4_K || src0->type == GGML_TYPE_IQ2_K || src0->type == GGML_TYPE_IQ3_K || src0->type == GGML_TYPE_IQ5_K || src0->type == GGML_TYPE_IQ6_K) && ggml_prec_get_acc(dst) == GGML_PREC_UNDEFINED ?
                 GGML_PREC_F32 : ggml_prec_get_acc(dst));
-                GGML_PREC_F32 : ggml_prec_get_acc(dst));
     }
 
     GGML_ASSERT(mmp_map != nullptr);
