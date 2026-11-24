@@ -20,7 +20,7 @@ Supported models:
 - [tiny-voca](#tiny-voca)
 - [VoxCPM2](#voxcpm2)
 
-The sections below list the params supported by each model, with `llama-tts` examples. In `llama-server`, the same options are set with `--tts-lang` and `--tts-voice`, or per request (see the [`/tts` endpoint](../../tools/server/README.md#post-tts-generate-speech-audio-from-text)).
+The sections below list the params supported by each model, with `llama-tts` examples. In `llama-server`, the same options are set with `--tts-lang`, `--tts-voice`, `--tts-speaker-file`, and `--tts-speaker-text`, or per request (see the [`/tts` endpoint](../../tools/server/README.md#post-tts-generate-speech-audio-from-text)).
 
 ## Qwen3-TTS
 

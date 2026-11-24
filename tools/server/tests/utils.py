@@ -141,6 +141,9 @@ class ServerProcess:
     mcp_servers_json: str | None = None
     cors_origins: str | None = None
     llama_cache: str | None = None
+    tts_voice: str | None = None
+    tts_speaker_file: str | None = None
+    tts_speaker_text: str | None = None
 
     # session variables
     process: subprocess.Popen | None = None
@@ -329,6 +332,12 @@ class ServerProcess:
             server_args.extend(["--mcp-servers-config", self.mcp_servers_config])
         if self.mcp_servers_json:
             server_args.extend(["--mcp-servers-json", self.mcp_servers_json])
+        if self.tts_voice:
+            server_args.extend(["--tts-voice", self.tts_voice])
+        if self.tts_speaker_file:
+            server_args.extend(["--tts-speaker-file", self.tts_speaker_file])
+        if self.tts_speaker_text:
+            server_args.extend(["--tts-speaker-text", self.tts_speaker_text])
         if self.backend_sampling:
             server_args.append("--backend_sampling")
         if self.gcp_compat:

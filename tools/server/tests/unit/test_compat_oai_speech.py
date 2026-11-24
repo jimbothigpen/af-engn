@@ -211,3 +211,139 @@ def test_tts_only_no_text_output(path: str):
     else:
         res = requests.post(server.make_url(path), json={"messages": [{"role": "user", "content": "hello"}]}, timeout=DEFAULT_REQUEST_TIMEOUT)
     assert res.status_code == 501
+
+
+def test_tts_only_default_speaker_file(tmp_path):
+    global server
+    ref_a = make_wav(seconds=2.0, rate=24000, freq=220)
+    ref_b = make_wav(seconds=2.0, rate=24000, freq=440)
+    ref_a_path = tmp_path / "speaker_a.wav"
+    ref_a_path.write_bytes(ref_a)
+
+    # baseline outputs without server-side default speaker file
+    server = ServerPreset.tinypockettts()
+    server.start()
+    no_ref = pocket_tts("/tts").content
+    with_ref_a = pocket_tts("/tts", speaker_ref_b64=base64.b64encode(ref_a).decode()).content
+    with_ref_b = pocket_tts("/tts", speaker_ref_b64=base64.b64encode(ref_b).decode()).content
+    server.stop()
+
+    assert with_ref_a != no_ref
+    assert with_ref_b != with_ref_a
+
+    # server configured with default --tts-speaker-file and --tts-speaker-text
+    log_path = tmp_path / "server.log"
+    server = ServerPreset.tinypockettts()
+    server.tts_speaker_file = str(ref_a_path)
+    server.tts_speaker_text = "Default server speaker transcript."
+    server.debug = True
+    server.log_path = str(log_path)
+    server.start()
+
+    # /tts without speaker_ref uses server default audio + default transcript
+    res = pocket_tts("/tts")
+    assert_wav(res)
+    assert res.content == with_ref_a
+
+    # /v1/audio/speech without speaker_ref (even with OpenAI voice="alloy") uses server default
+    res_oai = pocket_tts("/v1/audio/speech", voice="alloy")
+    assert_wav(res_oai)
+    assert res_oai.content == with_ref_a
+
+    # per-request speaker_ref_text overrides server --tts-speaker-text while keeping server default audio
+    res_text_override = pocket_tts("/tts", speaker_ref_text="Request transcript override.")
+    assert_wav(res_text_override)
+    assert res_text_override.content == with_ref_a
+
+    # per-request speaker_ref_b64 overrides server default and must NOT inherit --tts-speaker-text
+    res_override = pocket_tts("/tts", speaker_ref_b64=base64.b64encode(ref_b).decode())
+    assert_wav(res_override)
+    assert res_override.content == with_ref_b
+
+    res_oai_override = pocket_tts("/v1/audio/speech", speaker_ref_b64=base64.b64encode(ref_b).decode())
+    assert_wav(res_oai_override)
+    assert res_oai_override.content == with_ref_b
+
+    server.stop()
+
+    tts_lines = [line for line in log_path.read_text(errors="replace").splitlines() if "tts input:" in line]
+    assert len(tts_lines) == 5
+    assert 'has_speaker_ref=1, speaker_ref_text="Default server speaker transcript."' in tts_lines[0]
+    assert 'has_speaker_ref=1, speaker_ref_text="Default server speaker transcript."' in tts_lines[1]
+    assert 'has_speaker_ref=1, speaker_ref_text="Request transcript override."' in tts_lines[2]
+    assert 'has_speaker_ref=1, speaker_ref_text=""' in tts_lines[3]
+    assert 'has_speaker_ref=1, speaker_ref_text=""' in tts_lines[4]
+
+
+def test_tts_default_speaker_file_router_preset(tmp_path):
+    global server
+    ref_a = make_wav(seconds=2.0, rate=24000, freq=220)
+    ref_a_path = tmp_path / "speaker_router.wav"
+    ref_a_path.write_bytes(ref_a)
+
+    # baseline with explicit speaker_ref_b64
+    server = ServerPreset.tinypockettts()
+    server.start()
+    expected = pocket_tts("/v1/audio/speech", speaker_ref_b64=base64.b64encode(ref_a).decode()).content
+    server.stop()
+
+    preset_path = tmp_path / "tts_preset.ini"
+    preset_path.write_text(
+        "[pocket-cloned]\n"
+        f"hf-repo = {ServerPreset.tinypockettts().model_hf_repo}\n"
+        f"tts-speaker-file = {ref_a_path}\n"
+        "tts-speaker-text = Router preset transcript with spaces.\n"
+    )
+    log_path = tmp_path / "router.log"
+    server = ServerPreset.router()
+    server.models_preset = str(preset_path)
+    server.debug = True
+    server.log_path = str(log_path)
+    server.start()
+
+    res = pocket_tts("/v1/audio/speech", model="pocket-cloned", voice="alloy")
+    assert_wav(res)
+    assert res.content == expected
+    server.stop()
+
+    log_text = log_path.read_text(errors="replace")
+    assert 'has_speaker_ref=1, speaker_ref_text="Router preset transcript with spaces."' in log_text
+
+
+def test_tts_default_speaker_file_startup_errors(tmp_path):
+    global server
+
+    # nonexistent --tts-speaker-file fails fast at startup
+    log_missing = tmp_path / "missing.log"
+    server = ServerPreset.tinypockettts()
+    server.tts_speaker_file = str(tmp_path / "does_not_exist.wav")
+    server.log_path = str(log_missing)
+    with pytest.raises(RuntimeError):
+        server.start()
+    server.stop()
+    assert "failed to load speaker file" in log_missing.read_text(errors="replace")
+
+    # invalid (non-audio) --tts-speaker-file fails fast at startup
+    bad_file = tmp_path / "not_audio.wav"
+    bad_file.write_bytes(b"not a valid audio file")
+    log_invalid = tmp_path / "invalid.log"
+    server = ServerPreset.tinypockettts()
+    server.tts_speaker_file = str(bad_file)
+    server.log_path = str(log_invalid)
+    with pytest.raises(RuntimeError):
+        server.start()
+    server.stop()
+    assert "failed to load speaker file" in log_invalid.read_text(errors="replace")
+
+    # combining --tts-voice and --tts-speaker-file on a predefined-voice model fails fast
+    valid_wav = tmp_path / "valid.wav"
+    valid_wav.write_bytes(make_wav(seconds=1.0, rate=24000, freq=220))
+    log_conflict = tmp_path / "conflict.log"
+    server = ServerPreset.tinylfm3omni()
+    server.tts_voice = "female"
+    server.tts_speaker_file = str(valid_wav)
+    server.log_path = str(log_conflict)
+    with pytest.raises(RuntimeError):
+        server.start()
+    server.stop()
+    assert "--tts-voice and --tts-speaker-file cannot be used together" in log_conflict.read_text(errors="replace")

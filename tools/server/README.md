@@ -298,6 +298,8 @@ For the full list of features, please refer to [server's changelog](https://gith
 | `--spec-ngram-min-hits N` | the argument has been removed. use the respective --spec-ngram-*-min-hits |
 | `--tts-lang FNAME` | language (ISO 639-1) for audio generation<br/>see docs/multimodal/tts.md for per-model usage notes |
 | `--tts-voice VOICE` | voice for audio generation (model-dependent)<br/>see docs/multimodal/tts.md for per-model usage notes |
+| `--tts-speaker-file FNAME` | speaker file path for audio generation |
+| `--tts-speaker-text TEXT` | transcript of --tts-speaker-file, for models that need it to clone the voice<br/>see docs/multimodal/tts.md for per-model usage notes |
 | `--embd-gemma-default` | use default EmbeddingGemma model (note: can download weights from the internet) |
 | `--fim-qwen-1.5b-default` | use default Qwen 2.5 Coder 1.5B (note: can download weights from the internet) |
 | `--fim-qwen-3b-default` | use default Qwen 2.5 Coder 3B (note: can download weights from the internet) |
@@ -867,9 +869,9 @@ Returns raw audio bytes (`audio/wav` by default) rather than JSON. For the list 
 
 `voice`: Voice for the utterance, one of the `voices` listed by `GET /props` (model-dependent, e.g. `female` or `male` for LFM3-Audio). Optional: a model with predefined voices speaks with the first of them when neither `voice` nor `speaker_ref` is given. It rejects any other name, and a predefined voice cannot be combined with `speaker_ref`.
 
-`speaker_ref_b64`: Base64-encoded reference audio to clone the speaker's voice. Optional. Alternatively, upload the reference audio as a `speaker_ref` file field via `multipart/form-data` (see example below) - if both are provided, the uploaded file takes precedence. Rejected when the model has no voice encoder (e.g. Pocket TTS without voice cloning).
+`speaker_ref_b64`: Base64-encoded reference audio to clone the speaker's voice. Optional; defaults to `--tts-speaker-file` when configured on the server and no predefined `voice` is requested. Alternatively, upload the reference audio as a `speaker_ref` file field via `multipart/form-data` (see example below) - if both are provided, the uploaded file takes precedence. Rejected when the model has no voice encoder (e.g. Pocket TTS without voice cloning).
 
-`speaker_ref_text`: Transcript of the reference audio, put in the prompt by some models (e.g. Fish Audio S2 Pro, Qwen3-TTS). Optional.
+`speaker_ref_text`: Transcript of the reference audio, put in the prompt by some models (e.g. Fish Audio S2 Pro, Qwen3-TTS). Optional; defaults to `--tts-speaker-text` when the server's `--tts-speaker-file` is used (never applied to a request-supplied `speaker_ref`).
 
 `top_k`, `top_p`: Sampling params for both the backbone sampler and the acoustic code predictor. Optional, `0` or absent keeps the server `--top-k`/`--top-p` for the backbone and the model defaults for the code predictor.
 
@@ -1681,7 +1683,7 @@ Generates speech from text, for models that can generate audio. The request is c
 
 `input`: The text to speak.
 
-`voice`: One of the `voices` listed by `GET /props`, as a name or as `{"id": "..."}`. OpenAI voice names such as `alloy` are not mapped: a model with predefined voices rejects them.
+`voice`: One of the `voices` listed by `GET /props`, as a name or as `{"id": "..."}`. OpenAI voice names such as `alloy` are not mapped: a model with predefined voices rejects them; for voice-cloning models without predefined voices, the server falls back to `--tts-speaker-file` (and `--tts-speaker-text`) if configured.
 
 `response_format`: `wav` or `pcm` (raw signed 16-bit little-endian mono samples, no header). Defaults to `wav`, unlike the `mp3` of the OpenAI API. Other formats are rejected. The sample rate is the one of the model and is not resampled to the 24 kHz of the OpenAI API, the response `Content-Type` carries it.
 

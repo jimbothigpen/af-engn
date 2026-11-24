@@ -1054,6 +1054,10 @@ public:
     // prompt of the "asr" chat template, for live ASR
     llama_tokens asr_prompt;
 
+    // default speaker reference audio loaded from --tts-speaker-file (decoded PCM F32 + SHA-256 id)
+    std::vector<float> tts_speaker_ref_pcm;
+    std::string tts_speaker_ref_id;
+
     bool has_cap_tts() const {
         return mtmd_cap.audio_gen;
     }
@@ -1171,6 +1175,9 @@ private:
 
         mtmd_free(mctx);
         mctx = nullptr;
+
+        tts_speaker_ref_pcm.clear();
+        tts_speaker_ref_id.clear();
     }
 
     void handle_sleeping_state(bool new_state) {
@@ -1440,6 +1447,37 @@ private:
         mtmd_cap = mtmd_helper_get_capabilities(model_tgt, mctx);
         // the helper only knows about the built-in video decoder
         mtmd_cap.video = mtmd_cap.video || (mtmd_cap.vision && init_opt.video_params.decoder != nullptr);
+
+        tts_speaker_ref_pcm.clear();
+        tts_speaker_ref_id.clear();
+        if (!params_base.tts_speaker_file.empty()) {
+            if (!mtmd_cap.audio_gen) {
+                SRV_WRN("%s\n", "--tts-speaker-file is ignored because this model does not support audio generation");
+            } else {
+                const auto info = mtmd_gen_audio_get_info(mctx);
+                if (info.n_voices > 0 && !params_base.tts_voice.empty()) {
+                    SRV_ERR("%s\n", "--tts-voice and --tts-speaker-file cannot be used together");
+                    return false;
+                }
+                if (!mtmd_support_audio(mctx)) {
+                    SRV_ERR("%s\n", "this model has no voice encoder, --tts-speaker-file cannot be used");
+                    return false;
+                }
+                auto wrapper = mtmd_helper_bitmap_init_from_file(mctx, params_base.tts_speaker_file.c_str(), false, init_opt);
+                mtmd::bitmap_ptr bmp(wrapper.bitmap);
+                mtmd_helper::video_ptr vctx(wrapper.video_ctx);
+                if (!bmp || !mtmd_bitmap_is_audio(bmp.get()) || mtmd_bitmap_get_n_bytes(bmp.get()) == 0) {
+                    SRV_ERR("failed to load speaker file '%s'\n", params_base.tts_speaker_file.c_str());
+                    return false;
+                }
+                const size_t n_samples = mtmd_bitmap_get_n_bytes(bmp.get()) / sizeof(float);
+                const float * pcm = (const float *) mtmd_bitmap_get_data(bmp.get());
+                tts_speaker_ref_pcm.assign(pcm, pcm + n_samples);
+                const char * id = mtmd_bitmap_get_id(bmp.get());
+                tts_speaker_ref_id = id ? id : "";
+                SRV_INF("loaded default speaker reference, '%s' (%zu samples)\n", params_base.tts_speaker_file.c_str(), n_samples);
+            }
+        }
 
         if (!llama_memory_can_shift(llama_get_memory(ctx_tgt))) {
             if (params_base.ctx_shift) {
@@ -1978,7 +2016,11 @@ private:
             // mtmd_helper always re-eval the whole prompt
             slot.prompt_clear();
             task.tts_inp.data.seq_id = slot.id;
-            const int32_t ret = slot.tts.ctx.set_input(task.tts_inp.get());
+            const auto * tts_inp = task.tts_inp.get();
+            SLT_DBG(slot, "tts input: has_speaker_ref=%d, speaker_ref_text=\"%s\"\n",
+                    tts_inp->speaker_ref != nullptr,
+                    tts_inp->speaker_ref_text ? tts_inp->speaker_ref_text : "");
+            const int32_t ret = slot.tts.ctx.set_input(tts_inp);
             if (ret == 2) {
                 send_error(task, "invalid TTS input: the model may not support \"speed\", \"loudness\", \"cfg_scale\" or \"flow_steps\", see the server log", ERROR_TYPE_INVALID_REQUEST);
                 return false;
@@ -7318,9 +7360,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_tts_impl(const serve
             return res;
         }
     }
+    const std::string speaker_ref_text = json_value(body, "speaker_ref_text", std::string());
     task.tts_inp.set_prompt(tts_prompt.empty() ? prompt : tts_prompt);
     task.tts_inp.set_lang(lang);
-    task.tts_inp.set_speaker_ref_text(json_value(body, "speaker_ref_text", std::string()));
+    task.tts_inp.set_speaker_ref_text(speaker_ref_text);
     task.tts_inp.data.stream    = stream;
     task.tts_inp.data.out_type  = response_format == "pcm" || pcm16
         ? MTMD_HELPER_GEN_AUDIO_OUTTYPE_PCM
@@ -7378,6 +7421,15 @@ std::unique_ptr<server_res_generator> server_routes::handle_tts_impl(const serve
         task.tts_inp.set_speaker_ref(mtmd::bitmap_ptr(wrapper.bitmap));
     } else if (voice_ref) {
         task.tts_inp.set_speaker_ref(std::move(voice_ref));
+    } else if (!ctx_server.tts_speaker_ref_pcm.empty()) {
+        mtmd::bitmap_ptr default_ref(mtmd_bitmap_init_from_audio(ctx_server.tts_speaker_ref_pcm.size(), ctx_server.tts_speaker_ref_pcm.data()));
+        if (!ctx_server.tts_speaker_ref_id.empty()) {
+            mtmd_bitmap_set_id(default_ref.get(), ctx_server.tts_speaker_ref_id.c_str());
+        }
+        task.tts_inp.set_speaker_ref(std::move(default_ref));
+        if (speaker_ref_text.empty() && !params.tts_speaker_text.empty()) {
+            task.tts_inp.set_speaker_ref_text(params.tts_speaker_text);
+        }
     } else if (info.n_voices > 0) {
         // without a voice prompt the model produces near silence: the first voice is the default
         const char * first = mtmd_gen_audio_voice_name(ctx_server.mctx, 0);

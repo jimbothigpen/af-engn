@@ -2,9 +2,13 @@
 #include "common.h"
 #include "download.h"
 #include "llama.h"
+#include "preset.h"
 #include "speculative.h"
 
 #include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -430,6 +434,38 @@ static void test(void) {
     assert(params.model.path == "overwritten.gguf");
     assert(params.cpuparams.n_threads == 1010);
 #endif // _WIN32
+
+    printf("test-arg-parser: test server tts-speaker-file and tts-speaker-text CLI + preset\n\n");
+    {
+        common_params srv_params;
+        argv = {
+            "llama-server",
+            "--tts-speaker-file", "/tmp/my speaker.wav",
+            "--tts-speaker-text", "Hello world with spaces.",
+        };
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), srv_params, LLAMA_EXAMPLE_SERVER));
+        assert(srv_params.tts_speaker_file == "/tmp/my speaker.wav");
+        assert(srv_params.tts_speaker_text == "Hello world with spaces.");
+
+        const auto tmp_ini = std::filesystem::temp_directory_path() / "llama_test_tts_preset.ini";
+        {
+            std::ofstream out(tmp_ini);
+            out << "[tts-clone]\n"
+                << "tts-speaker-file = /tmp/ref voice.wav\n"
+                << "tts-speaker-text = A sample transcript with spaces.\n";
+        }
+        common_preset_context ctx_preset(LLAMA_EXAMPLE_SERVER);
+        common_preset global;
+        auto presets = ctx_preset.load_from_ini(tmp_ini, global);
+        std::filesystem::remove(tmp_ini);
+
+        assert(presets.count("tts-clone") == 1);
+        auto child_args = presets.at("tts-clone").to_args("llama-server");
+        common_params child_params;
+        assert(true == common_params_parse(child_args.size(), list_str_to_char(child_args).data(), child_params, LLAMA_EXAMPLE_SERVER));
+        assert(child_params.tts_speaker_file == "/tmp/ref voice.wav");
+        assert(child_params.tts_speaker_text == "A sample transcript with spaces.");
+    }
 
     printf("test-arg-parser: test download functions\n\n");
     const char * GOOD_URL = "http://ggml.ai/";
