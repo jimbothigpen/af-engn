@@ -1476,6 +1476,11 @@ bool llm_graph_input_mem_hybrid_iswa_rel::can_reuse(const llm_graph_params & par
     res &= self_rel_pos_swa->ne[0] == attn_ctx->get_swa()->get_n_kv();
     res &= self_rel_pos_swa->ne[1] == params.ubatch.n_tokens;
 
+    if (banded) {
+        res &= attn_ctx->get_base()->get_n_kv_pos_contiguous() == n_kv_banded[0];
+        res &= attn_ctx->get_swa()->get_n_kv_pos_contiguous()  == n_kv_banded[1];
+    }
+
     res &= inp_rs->s_copy->ne[0] == mctx->get_recr()->get_n_rs();
 
     res &= inp_rs->s_copy_main->ne[0] == params.ubatch.n_seqs;
@@ -4410,6 +4415,22 @@ ggml_tensor * llm_graph_context::build_attn(
 
     // a mask per head, in the dense layout of the input mask, which flash attention takes in F16
     ggml_tensor * kq_mask = attn_mask.raw;
+    if (cparams.flash_attn && kq_b->type == GGML_TYPE_F32 && kq_mask->type == GGML_TYPE_F16 && hparams.f_max_alibi_bias == 0.0f) {
+        // convert the bias to F16 in one copy, from the source of its contiguous copy when it is one (the same values),
+        // and add the mask in F16: the mask is 0 or -inf, so this rounds the same as adding in F32 and converting
+        ggml_tensor * src = kq_b->op == GGML_OP_CONT ? kq_b->src[0] : kq_b;
+        // a cast, not a copy into a new tensor: that tensor would be a graph leaf, which the allocator keeps
+        // for the whole graph, so the bias of every chunk and layer would stay allocated at once
+        ggml_tensor * bias = ggml_cast(ctx0, src, GGML_TYPE_F16);
+        if (kq_b->ne[1] != kq_mask->ne[1]) {
+            kq_mask = ggml_view_4d(ctx0, kq_mask, kq_mask->ne[0], kq_b->ne[1], kq_mask->ne[2], kq_mask->ne[3],
+                    kq_mask->nb[1], kq_mask->nb[2], kq_mask->nb[3], i_row*kq_mask->nb[1]);
+        }
+        kq_mask = ggml_add(ctx0, bias, kq_mask);
+        cb(kq_mask, "kq_mask_rel_pos", il);
+
+        return build_attn_iswa_impl(*this, inp_attn, wo, wo_b, wo_s, q_cur, k_cur, v_cur, nullptr, kq_mask, nullptr, sinks, nullptr, kq_scale, il);
+    }
     if (kq_b->ne[1] != kq_mask->ne[1]) {
         ggml_tensor *& dev = inp->self_kq_mask_dev[is_swa];
         if (!dev) {
