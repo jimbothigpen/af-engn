@@ -6175,7 +6175,26 @@ bool ggml_validate_row_data_ne(enum ggml_type type, const void * data, size_t nb
 
     const int64_t row_meta = ggml_row_meta_size(type);
     if (row_meta == 0) {
+        if (n_per_row <= 0 || n_per_row % ggml_row_blck_size(type) != 0) {
+            fprintf(stderr, "%s: invalid row width %" PRId64 " for type %s (row block size = %" PRId64 ")\n",
+                    __func__, n_per_row, ggml_type_name(type), ggml_row_blck_size(type));
+            return false;
+        }
+
+        const size_t row_size = ggml_row_size(type, n_per_row);
+        if (nbytes == 0 || nbytes % row_size != 0) {
+            fprintf(stderr, "%s: invalid size %zu for type %s (row size = %zu)\n",
+                    __func__, nbytes, ggml_type_name(type), row_size);
+            return false;
+        }
+
         return ggml_validate_row_data(type, data, nbytes);
+    }
+
+    if (row_meta != 2 && row_meta != 4) {
+        fprintf(stderr, "%s: unsupported row metadata size %" PRId64 " for type %s\n",
+                __func__, row_meta, ggml_type_name(type));
+        return false;
     }
 
     if (n_per_row <= 0 || n_per_row % ggml_row_blck_size(type) != 0) {
@@ -6216,6 +6235,11 @@ bool ggml_validate_row_data_ne(enum ggml_type type, const void * data, size_t nb
 bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbytes) {
     if (type < 0 || type >= GGML_TYPE_COUNT) {
         fprintf(stderr, "%s: invalid type %d\n", __func__, type);
+        return false;
+    }
+
+    if (ggml_row_meta_size(type) != 0) {
+        fprintf(stderr, "%s: type %s has per-row metadata, row width is required: use ggml_validate_row_data_ne\n", __func__, ggml_type_name(type));
         return false;
     }
 

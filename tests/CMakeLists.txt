@@ -444,6 +444,21 @@ if (NOT LLAMA_USE_SYSTEM_GGML)
     llama_build_and_test(test-alloc.cpp  LABEL "behavior backend"  LINK ggml)
 endif()
 
+llama_build_and_test(test-validate-row-data.cpp  LABEL behavior  LINK ggml)
+
+if (GGML_CPU)
+    # end-to-end: quantize to the custom types and reload the result
+    set(QUANT_RELOAD_DIR "${CMAKE_CURRENT_BINARY_DIR}/test-models-quant-reload")
+    file(MAKE_DIRECTORY "${QUANT_RELOAD_DIR}")
+    llama_build(test-quantize-reload.cpp)
+    llama_test(test-llama-archs NAME test-generate-quant-reload-model LABEL "main behavior"
+        ARGS -a llama -s 1 -o "${QUANT_RELOAD_DIR}")
+    set_tests_properties(test-generate-quant-reload-model PROPERTIES FIXTURES_SETUP quant-reload-model)
+    llama_test(test-quantize-reload NAME test-quantize-reload LABEL "main behavior"
+        ARGS "${QUANT_RELOAD_DIR}/llama-dense.gguf" "${QUANT_RELOAD_DIR}/out")
+    set_tests_properties(test-quantize-reload PROPERTIES FIXTURES_REQUIRED quant-reload-model)
+endif()
+
 llama_build(test-export-graph-ops.cpp)
 if (TARGET gguf-model-data)
     target_link_libraries(test-export-graph-ops PRIVATE gguf-model-data)

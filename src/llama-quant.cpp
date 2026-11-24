@@ -485,6 +485,22 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
             case GGML_TYPE_IQ3_S:   // types on the right: block size 32
             case GGML_TYPE_IQ4_XS:  return_type = GGML_TYPE_IQ4_NL; break;
         case GGML_TYPE_IQ1_BN:  return_type = GGML_TYPE_IQ4_NL; break;
+            // custom K-family types have no smaller block to demote to
+            case GGML_TYPE_IQ2_K:
+            case GGML_TYPE_IQ3_K:
+            case GGML_TYPE_IQ4_K:
+            case GGML_TYPE_IQ5_K:
+            case GGML_TYPE_IQ6_K:
+            case GGML_TYPE_IQ2_KS:
+            case GGML_TYPE_IQ3_KS:
+            case GGML_TYPE_IQ4_KS:
+            case GGML_TYPE_IQ4_KSS:
+            case GGML_TYPE_IQ5_KS:
+            case GGML_TYPE_IQ1_KT:
+            case GGML_TYPE_IQ2_KT:
+            case GGML_TYPE_IQ3_KT:
+            case GGML_TYPE_IQ4_KT:
+            case GGML_TYPE_IQ2_KL:  return_type = GGML_TYPE_IQ4_NL; break;
             case GGML_TYPE_Q2_0:
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q3_K:
@@ -1227,6 +1243,12 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             metadata[i].target_type = tensor->type;
         }
 
+        // the final tensor types determine the header size (custom types add the dialect marker KV),
+        // so they must be applied before the header space is reserved
+        if (metadata[i].target_type != tensor->type) {
+            gguf_set_tensor_type(ctx_outs[i_split].get(), tensor->name, metadata[i].target_type);
+        }
+
         metadata[i].requires_imatrix = tensor_requires_imatrix(tensor->name, metadata[i].target_type, ftype);
 
         if (params->imatrix) {
@@ -1269,11 +1291,13 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
     int cur_split = -1;
     std::ofstream fout;
+    std::vector<size_t> initial_meta_size(ctx_outs.size(), 0);
     auto close_ofstream = [&]() {
         // Write metadata and close file handler
         if (fout.is_open()) {
             fout.seekp(0);
             std::vector<uint8_t> data(gguf_get_meta_size(ctx_outs[cur_split].get()));
+            GGML_ASSERT(data.size() <= initial_meta_size[cur_split] && "metadata grew after tensor data was written");
             gguf_get_meta_data(ctx_outs[cur_split].get(), data.data());
             fout.write((const char *) data.data(), data.size());
             fout.close();
@@ -1291,9 +1315,9 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
         fout = std::ofstream(fname, std::ios::binary);
         fout.exceptions(std::ofstream::failbit); // fail fast on write errors
-        const size_t meta_size = gguf_get_meta_size(ctx_outs[cur_split].get());
+        initial_meta_size[cur_split] = gguf_get_meta_size(ctx_outs[cur_split].get());
         // placeholder for the meta data
-        ::zeros(fout, meta_size);
+        ::zeros(fout, initial_meta_size[cur_split]);
     };
 
     // no output file for --dry-run
@@ -1461,8 +1485,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             total_size_org += tensor_size;
             total_size_new += new_size;
 
-            // update the gguf metadata as we go
-            gguf_set_tensor_type(ctx_outs[cur_split].get(), metadata[i].name.c_str(), new_type);
+            // the output type was declared before the header was reserved; verify the written size matches
             GGML_ASSERT(gguf_get_tensor_size(ctx_outs[cur_split].get(), gguf_find_tensor(ctx_outs[cur_split].get(), metadata[i].name.c_str())) == new_size);
 
             // tensor data is already written, add the padding
