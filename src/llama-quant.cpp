@@ -484,6 +484,7 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
             case GGML_TYPE_IQ3_XXS:
             case GGML_TYPE_IQ3_S:   // types on the right: block size 32
             case GGML_TYPE_IQ4_XS:  return_type = GGML_TYPE_IQ4_NL; break;
+        case GGML_TYPE_IQ1_BN:  return_type = GGML_TYPE_IQ4_NL; break;
             case GGML_TYPE_Q2_0:
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q3_K:
@@ -877,7 +878,7 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * 
             const int64_t this_nrow  = std::min(nrows - row, nrows_per_expert - row_global % nrows_per_expert);
             void * this_data = (char *) new_data + row * row_size;
             size_t this_size = ggml_quantize_chunk(new_type, f32_data + row * n_per_row, this_data, 0, this_nrow, n_per_row, imatrix_for_row(row_global));
-            if (!ggml_validate_row_data(new_type, this_data, this_size)) {
+            if (!ggml_validate_row_data_ne(new_type, this_data, this_size, n_per_row)) {
                 throw std::runtime_error("quantized data validation failed");
             }
             new_size += this_size;
@@ -914,7 +915,7 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * 
             local_size += this_size;
 
             // validate the quantized data
-            if (!ggml_validate_row_data(new_type, this_data, this_size)) {
+            if (!ggml_validate_row_data_ne(new_type, this_data, this_size, n_per_row)) {
                 std::unique_lock<std::mutex> lock(mutex);
                 valid = false;
                 break;
@@ -1011,6 +1012,7 @@ ggml_type llama_ftype_get_default_type(llama_ftype ftype) {
 case LLAMA_FTYPE_MOSTLY_IQ3_KT: return GGML_TYPE_IQ3_KT;
 case LLAMA_FTYPE_MOSTLY_IQ4_KT: return GGML_TYPE_IQ4_KT;
         case LLAMA_FTYPE_MOSTLY_IQ2_KL: return GGML_TYPE_IQ2_KL;
+        case LLAMA_FTYPE_MOSTLY_IQ1_BN: return GGML_TYPE_IQ1_BN;
         case LLAMA_FTYPE_MOSTLY_IQ3_KS: return GGML_TYPE_IQ3_KS;
         case LLAMA_FTYPE_MOSTLY_IQ2_K:   return GGML_TYPE_IQ2_K;
         case LLAMA_FTYPE_MOSTLY_IQ3_K:   return GGML_TYPE_IQ3_K;

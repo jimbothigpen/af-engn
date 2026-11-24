@@ -1,0 +1,58 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+// IQ1_BN base-3 digit multipliers (contract §4). The uint8_t product is
+// mandatory: (q * k_mult[j]) must wrap modulo 256 before the trit is derived.
+const uint k_mult_iq1_bn[5] = uint[5](81, 27, 9, 3, 1);
+
+uint read_u16(uint offset) {
+return uint(data_a_bytes[offset]) | (uint(data_a_bytes[offset + 1]) << 8);
+}
+
+void main() {
+// 256 threads; each thread decodes two 16-weight groups (32 values) of one
+// block: 2 threads per 64-weight block, 128 blocks per workgroup -> 8192 values
+// per workgroup (host denominator 256 * 32, same as IQ2_KL).
+const uint tid = gl_LocalInvocationID.x;
+const uint ib = gl_WorkGroupID.x * 128 + tid / 2;
+if (ib >= p.nel / QUANT_K) {
+return;
+}
+
+const uint nb = p.K / QUANT_K;
+const uint row_bytes = 2 + nb * 13;
+const uint row_offset = (ib / nb) * row_bytes;
+const uint block_offset = row_offset + 2 + (ib % nb) * 13;
+const float d = unpackHalf2x16(read_u16(row_offset)).x;
+
+// half 0 -> groups 0,1 (weights 0..31), half 1 -> groups 2,3 (weights 32..63)
+const uint g0 = 2 * (tid % 2);
+
+for (uint gi = 0; gi < 2; ++gi) {
+const uint g = g0 + gi;
+const uint q0 = uint(data_a_bytes[block_offset + 3 * g + 0]);
+const uint q1 = uint(data_a_bytes[block_offset + 3 * g + 1]);
+const uint q2 = uint(data_a_bytes[block_offset + 3 * g + 2]);
+const uint extra = uint(data_a_bytes[block_offset + 12]);
+for (uint r = 0; r < 16; ++r) {
+uint v;
+if (r < 15) {
+const uint q = (r < 5) ? q0 : ((r < 10) ? q1 : q2);
+v = (q * k_mult_iq1_bn[r % 5]) & 0xFFu;
+} else {
+v = (extra * k_mult_iq1_bn[g]) & 0xFFu;
+}
+const uint vs = (v + (v >> 1)) >> 7;
+const float val = d * float(int(vs) - 1);
+data_b[QUANT_K * ib + 16 * g + r] = D_TYPE(val);
+}
+}
+}

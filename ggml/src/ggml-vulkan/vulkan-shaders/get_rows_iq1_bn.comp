@@ -1,0 +1,51 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "types.glsl"
+#include "generic_binary_head.glsl"
+
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+
+const uint k_mult_iq1_bn[5] = uint[5](81, 27, 9, 3, 1);
+
+uint read_u16(uint offset) {
+return uint(data_a[offset]) | (uint(data_a[offset + 1]) << 8);
+}
+
+void main() {
+const uint col = gl_GlobalInvocationID.x;
+if (col >= p.ne00) {
+return;
+}
+
+const uint ib = col / 64;
+const uint in_blk = col % 64;
+const uint i16 = in_blk / 16;
+const uint r = in_blk % 16;
+
+for (uint z = gl_GlobalInvocationID.z; z < p.ne11 * p.ne12; z += gl_NumWorkGroups.z) {
+for (uint y = gl_GlobalInvocationID.y; y < p.ne10; y += gl_NumWorkGroups.y) {
+const uint i11 = z / p.ne12;
+const uint i12 = z % p.ne12;
+const uint row = uint(data_b[get_boffset() + y * p.nb10 + i11 * p.nb11 + i12 * p.nb12]);
+const uint row_offset = get_aoffset() + row * p.nb01 + i11 * p.nb02 + i12 * p.nb03;
+const uint block_offset = row_offset + 2 + ib * 13;
+const float d = unpackHalf2x16(read_u16(row_offset)).x;
+
+uint v;
+if (r < 15) {
+const uint q = uint(data_a[block_offset + 3 * i16 + r / 5]);
+v = (q * k_mult_iq1_bn[r % 5]) & 0xFFu;
+} else {
+const uint extra = uint(data_a[block_offset + 12]);
+v = (extra * k_mult_iq1_bn[i16]) & 0xFFu;
+}
+const uint vs = (v + (v >> 1)) >> 7;
+const float val = d * float(int(vs) - 1);
+
+const uint dst = get_doffset() + y * p.nb21 + i11 * p.nb22 + i12 * p.nb23 + col;
+data_d[dst] = D_TYPE(val);
+}
+}
+}

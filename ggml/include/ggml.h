@@ -275,7 +275,8 @@ GGML_TYPE_IQ2_KT  = 55,
 GGML_TYPE_IQ3_KT  = 56,
 GGML_TYPE_IQ4_KT  = 57,
 GGML_TYPE_IQ2_KL  = 58,
-GGML_TYPE_COUNT   = 59,
+GGML_TYPE_IQ1_BN  = 59,
+GGML_TYPE_COUNT   = 60,
 
     };
 
@@ -667,6 +668,7 @@ GGML_TYPE_COUNT   = 59,
     GGML_API size_t ggml_tensor_overhead(void);
 
     GGML_API bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbytes);
+GGML_API bool ggml_validate_row_data_ne(enum ggml_type type, const void * data, size_t nbytes, int64_t n_per_row);
 
     // main
 

@@ -1988,6 +1988,39 @@ uint32_t qh[4];
 #define A_TYPE_PACKED32 uint32_t
 #endif
 
+#define QUANT_K_IQ1_BN 64
+#define QUANT_R_IQ1_BN 1
+
+// IQ1_BN: row-level d is a 2-byte fp16 prefix (row_meta_size=2), not in the block.
+// 13-byte blocks per 64 values: uint8_t ql[12] (4 groups of three base-3 bytes)
+// plus uint8_t extra (four 16th digits). Byte-level SSBO addressing handles the
+// row prefix.
+struct block_iq1_bn
+{
+uint8_t ql[12];
+uint8_t extra;
+};
+
+struct block_iq1_bn_packed16
+{
+uint16_t ql[6];
+uint16_t extra_pad;
+};
+
+struct block_iq1_bn_packed32
+{
+uint32_t ql[3];
+uint32_t extra_pad;
+};
+
+#if defined(DATA_A_IQ1_BN)
+#define QUANT_K QUANT_K_IQ1_BN
+#define QUANT_R QUANT_R_IQ1_BN
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ4_KS 256
 #define QUANT_R_IQ4_KS 1
 

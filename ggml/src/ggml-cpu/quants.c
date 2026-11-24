@@ -573,6 +573,46 @@ void ggml_vec_dot_iq2_kl_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
     *s = d * sumf;
 }
 
+void ggml_vec_dot_iq1_bn_q8_1(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_IQ1BN == 0);
+    assert(nrc == 1);
+    UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);
+    const ggml_half * dptr = (const ggml_half *)vx;
+    const float d = GGML_FP16_TO_FP32(*dptr);
+    const block_iq1_bn * x = (const block_iq1_bn *)(dptr + 1);
+    const block_q8_1   * y = (const block_q8_1 *)vy;
+
+    static const uint8_t k_mult[5] = {81, 27, 9, 3, 1};
+
+    const int nb = n / QK_IQ1BN;
+    float sumf = 0.0f;
+    for (int i = 0; i < nb; ++i) {
+        const uint8_t * ql = x[i].ql;
+        const uint8_t extra = x[i].extra;
+        // two Q8_1 blocks (32 weights each) per 64-weight IQ1_BN block
+        for (int h = 0; h < 2; ++h) {
+            const int8_t * q8 = y[2*i + h].qs;
+            int sumi = 0;
+            for (int g = 0; g < 2; ++g) {
+                const int i16 = 2*h + g;
+                for (int ik = 0; ik < 3; ++ik) {
+                    const uint8_t q = ql[3*i16 + ik];
+                    for (int j = 0; j < 5; ++j) {
+                        const uint8_t v = (uint8_t)(q * k_mult[j]);
+                        const int8_t vs = (int8_t)((v + (v >> 1)) >> 7);
+                        sumi += q8[16*g + 5*ik + j] * (vs - 1);
+                    }
+                }
+                const uint8_t v = (uint8_t)(extra * k_mult[i16]);
+                const int8_t vs = (int8_t)((v + (v >> 1)) >> 7);
+                sumi += q8[16*g + 15] * (vs - 1);
+            }
+            sumf += GGML_FP16_TO_FP32(y[2*i + h].d) * sumi;
+        }
+    }
+    *s = d * sumf;
+}
+
 void ggml_vec_dot_iq3_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0 && nrc == 1);
     UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);

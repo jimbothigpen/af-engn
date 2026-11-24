@@ -10,6 +10,7 @@
 #include <string.h>
 #include <assert.h>
 #include <float.h>
+#include <inttypes.h>
 #include <stdlib.h> // for qsort
 #include <stdio.h>  // for GGML_ASSERT
 
@@ -2839,6 +2840,34 @@ void dequantize_row_iq2_kl(const block_iq2_kl * GGML_RESTRICT x, float * GGML_RE
             }
             y += 64;
             qs += 16;
+        }
+    }
+}
+
+void dequantize_row_iq1_bn(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_IQ1BN == 0);
+    const int64_t nb = k / QK_IQ1BN;
+    const ggml_half * dptr = (const ggml_half *)vx;
+    const float d = GGML_FP16_TO_FP32(*dptr);
+    const block_iq1_bn * x = (const block_iq1_bn *)(dptr + 1);
+
+    static const uint8_t k_mult[5] = {81, 27, 9, 3, 1};
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const uint8_t * ql = x[ib].ql;
+        const uint8_t extra = x[ib].extra;
+        for (int i16 = 0; i16 < 4; ++i16) {
+            for (int ik = 0; ik < 3; ++ik) {
+                const uint8_t q = ql[3*i16 + ik];
+                for (int j = 0; j < 5; ++j) {
+                    const uint8_t v = (uint8_t)(q * k_mult[j]);
+                    const int8_t vs = (int8_t)((v + (v >> 1)) >> 7);
+                    *y++ = d * (float)(vs - 1);
+                }
+            }
+            const uint8_t v = (uint8_t)(extra * k_mult[i16]);
+            const int8_t vs = (int8_t)((v + (v >> 1)) >> 7);
+            *y++ = d * (float)(vs - 1);
         }
     }
 }
@@ -6137,6 +6166,52 @@ static bool validate_e_e8m0(uint8_t e, size_t i) {
             } \
         } \
     }
+
+bool ggml_validate_row_data_ne(enum ggml_type type, const void * data, size_t nbytes, int64_t n_per_row) {
+    if (type < 0 || type >= GGML_TYPE_COUNT) {
+        fprintf(stderr, "%s: invalid type %d\n", __func__, type);
+        return false;
+    }
+
+    const int64_t row_meta = ggml_row_meta_size(type);
+    if (row_meta == 0) {
+        return ggml_validate_row_data(type, data, nbytes);
+    }
+
+    if (n_per_row <= 0 || n_per_row % ggml_row_blck_size(type) != 0) {
+        fprintf(stderr, "%s: invalid row width %" PRId64 " for type %s (row block size = %" PRId64 ")\n",
+                __func__, n_per_row, ggml_type_name(type), ggml_row_blck_size(type));
+        return false;
+    }
+
+    const size_t row_size = ggml_row_size(type, n_per_row);
+    if (nbytes == 0 || nbytes % row_size != 0) {
+        fprintf(stderr, "%s: invalid size %zu for type %s (row size = %zu)\n",
+                __func__, nbytes, ggml_type_name(type), row_size);
+        return false;
+    }
+
+    const size_t nrows = nbytes / row_size;
+    const uint8_t * row = (const uint8_t *) data;
+    for (size_t i = 0; i < nrows; ++i) {
+        if (row_meta == 2) {
+            ggml_fp16_t d;
+            memcpy(&d, row, sizeof(d));
+            if (!validate_fp16(d, i)) {
+                return false;
+            }
+        } else {
+            float d;
+            memcpy(&d, row, sizeof(d));
+            if (!validate_float(d, i)) {
+                return false;
+            }
+        }
+        row += row_size;
+    }
+
+    return true;
+}
 
 bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbytes) {
     if (type < 0 || type >= GGML_TYPE_COUNT) {
