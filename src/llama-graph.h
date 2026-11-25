@@ -1344,7 +1344,9 @@ struct llm_graph_context {
             ggml_tensor * v_mla,   // [n_embd_head_v_mla, n_embd_head_v, n_head_v]
                 int64_t   n_kv_max,
                   float   kq_scale,
-                    int   il) const;
+                    int   il,
+            ggml_tensor * bias_table = nullptr,
+            ggml_tensor * bias_indices = nullptr) const;
 
     llm_graph_input_attn_no_cache * build_attn_inp_no_cache() const;
 
@@ -1542,7 +1544,7 @@ struct llm_graph_context {
             uint32_t extent,
             uint32_t extent_swa) const;
 
-    // kq_b is added to the KQ mask, after the KQ scale
+    // kq_b is added to the KQ mask, after the KQ scale (or compact indexed bias when bias_indices != nullptr)
     ggml_tensor * build_attn(
             llm_graph_input_mem_hybrid_iswa_rel * inp,
             ggml_tensor * wo,
@@ -1551,11 +1553,12 @@ struct llm_graph_context {
             ggml_tensor * q_cur, // [n_embd_head_q, n_head_q, n_tokens]
             ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens]
             ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens]
-            ggml_tensor * kq_b,  // [n_kv, n_rows, n_head_q, n_stream]
+            ggml_tensor * kq_b,  // [n_kv, n_rows, n_head_q, n_stream] or [n_bins, n_head_q, n_tokens] when bias_indices != nullptr
             ggml_tensor * sinks, // [n_head_q]
                   float   kq_scale,
                     int   il,
-                int64_t   i_row = 0) const; // first mask row of q_cur and kq_b
+                int64_t   i_row = 0, // first mask row of q_cur and kq_b
+            ggml_tensor * bias_indices = nullptr) const;
 
     //
     // pooling

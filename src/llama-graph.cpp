@@ -3119,7 +3119,9 @@ ggml_tensor * llm_graph_context::build_attn_mha(
          ggml_tensor * v_mla,
              int64_t   n_kv_max,
                float   kq_scale,
-                 int   il) const {
+                 int   il,
+        ggml_tensor * bias_table,
+        ggml_tensor * bias_indices) const {
     const bool v_trans = v->nb[1] > v->nb[2];
 
     // split the batch into streams if needed
@@ -3167,6 +3169,9 @@ ggml_tensor * llm_graph_context::build_attn_mha(
         GGML_ASSERT(n_kv_max >= 0 && n_kv_max <= INT32_MAX);
         ggml_flash_attn_ext_set_n_kv_max(cur, static_cast<int32_t>(n_kv_max));
         ggml_prec_set_acc(cur, GGML_PREC_F32);
+        if (bias_table) {
+            ggml_flash_attn_ext_add_indexed_bias(cur, bias_table, bias_indices);
+        }
 
         if (v_mla) {
 #if 0
@@ -3696,7 +3701,9 @@ static ggml_tensor * build_attn_iswa_impl(
         ggml_tensor * sinks,
         ggml_tensor * v_mla,
             float     kq_scale,
-            int       il) {
+            int       il,
+        ggml_tensor * bias_table = nullptr,
+        ggml_tensor * bias_indices = nullptr) {
     ggml_context * ctx0 = gctx.ctx0;
     ggml_cgraph  * gf   = gctx.gf;
 
@@ -3762,7 +3769,7 @@ static ggml_tensor * build_attn_iswa_impl(
     ggml_tensor * k = use_kv_cur ? k_cur : mctx_cur->get_k(ctx0, il);
     ggml_tensor * v = use_kv_cur ? v_cur : mctx_cur->get_v(ctx0, il);
 
-    ggml_tensor * cur = gctx.build_attn_mha(q, k, v, kq_b, kq_mask, kv_rows, sinks, v_mla, 0, kq_scale, il);
+    ggml_tensor * cur = gctx.build_attn_mha(q, k, v, kq_b, kq_mask, kv_rows, sinks, v_mla, 0, kq_scale, il, bias_table, bias_indices);
     cur = build_attn_scale_kv_output(ctx0, mctx_cur, cur, il);
     gctx.cb(cur, "kqv_out", il);
 
@@ -4402,7 +4409,8 @@ ggml_tensor * llm_graph_context::build_attn(
         ggml_tensor * sinks,
             float     kq_scale,
             int       il,
-        int64_t       i_row) const {
+        int64_t       i_row,
+        ggml_tensor * bias_indices) const {
     const bool is_swa = hparams.is_swa(il);
 
     auto * inp_attn = inp->get_attn();
@@ -4412,6 +4420,11 @@ ggml_tensor * llm_graph_context::build_attn(
     // TODO: support kv_rows - fill the distances over the kv_rows cell lists and pass the rows to build_attn_mha,
     //       needs a kv_rows flash attention with a per-head mask (CUDA has none)
     GGML_ASSERT(attn_mask.rows == nullptr);
+
+    if (bias_indices) {
+        return build_attn_iswa_impl(*this, inp_attn, wo, wo_b, wo_s, q_cur, k_cur, v_cur, nullptr, attn_mask.raw, nullptr,
+                sinks, nullptr, kq_scale, il, kq_b, bias_indices);
+    }
 
     // a mask per head, in the dense layout of the input mask, which flash attention takes in F16
     ggml_tensor * kq_mask = attn_mask.raw;

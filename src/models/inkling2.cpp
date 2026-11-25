@@ -345,6 +345,47 @@ bool llama_model_inkling2::graph::use_banded(int il, bool swa) {
     return ok;
 }
 
+bool llama_model_inkling2::graph::use_indexed_bias(int il, bool swa, int64_t n_bins, int64_t n_kv) {
+    if (!cparams.flash_attn || !cparams.offload_kqv || hparams.f_max_alibi_bias != 0.0f) {
+        return false;
+    }
+    const ggml_tensor * mask = swa ? attn->self_attn_mask_swa.raw : attn->self_attn_mask.raw;
+    if (!mask || mask->type != GGML_TYPE_F16) {
+        return false;
+    }
+    const auto * cache = swa ? attn->mctx->get_swa() : attn->mctx->get_base();
+    ggml_backend_dev_t dev = model.dev_layer(il);
+    if (!dev) {
+        return false;
+    }
+    for (const auto & [key, ok] : indexed_bias_dev_ok) {
+        if (key.first == swa && key.second == dev) {
+            return ok;
+        }
+    }
+    const int64_t hd_k     = hparams.n_embd_head_k(il);
+    const int64_t hd_v     = hparams.n_embd_head_v(il);
+    const int64_t nh       = hparams.n_head(il);
+    const int64_t nkv      = hparams.n_head_kv(il);
+    const int64_t n_stream = mask->ne[3];
+    const int64_t n_seq_t  = n_tokens / n_stream;
+    ggml_tensor * pq = ggml_new_tensor_4d(ctx0, GGML_TYPE_F32, hd_k, n_seq_t, nh, n_stream);
+    ggml_type tk = cache->type_k() == GGML_TYPE_F32 ? GGML_TYPE_F16 : cache->type_k();
+    ggml_type tv = cache->type_v() == GGML_TYPE_F32 ? GGML_TYPE_F16 : cache->type_v();
+    ggml_tensor * pk = ggml_new_tensor_4d(ctx0, tk, hd_k, n_kv, nkv, n_stream);
+    ggml_tensor * pv = ggml_new_tensor_4d(ctx0, tv, hd_v, n_kv, nkv, n_stream);
+    ggml_tensor * pm = ggml_new_tensor_4d(ctx0, GGML_TYPE_F16, n_kv, n_seq_t, 1, n_stream);
+    ggml_tensor * pt = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_bins, nh, n_tokens);
+    ggml_tensor * pi = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_kv, n_tokens);
+    ggml_tensor * op = ggml_flash_attn_ext(ctx0, pq, pk, pv, pm, 1.0f, 0.0f, 0.0f);
+    ggml_flash_attn_ext_add_sinks(op, ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, nh));
+    ggml_flash_attn_ext_add_indexed_bias(op, pt, pi);
+    ggml_prec_set_acc(op, GGML_PREC_F32);
+    const bool ok = ggml_backend_dev_supports_op(dev, op);
+    indexed_bias_dev_ok.push_back({ { swa, dev }, ok });
+    return ok;
+}
+
 ggml_tensor * llama_model_inkling2::graph::build_inputs() {
     inp  = build_inp_mem_hybrid_iswa_rel(hparams.n_relative_extent, hparams.n_swa);
     attn = inp->get_attn();
@@ -556,7 +597,6 @@ ggml_tensor * llama_model_inkling2::graph::build_layer(int il, int ip, ggml_tens
 
             // per-query sink t: exp(s - t)/(1 + sum(exp(s - t))) = exp(s)/(exp(t) + sum(exp(s)))
             table = ggml_sub(ctx0, table, ggml_reshape_3d(ctx0, sinks, 1, n_head, n_tokens));
-            table = ggml_cont(ctx0, ggml_permute(ctx0, table, 1, 0, 2, 3));
 
             // zero sinks, filled once per graph and layer device
             ggml_tensor *& zero = clip_limits[{ { model.dev_layer(il), -n_head }, 0.0f }];
@@ -564,6 +604,13 @@ ggml_tensor * llama_model_inkling2::graph::build_layer(int il, int ip, ggml_tens
                 zero = ggml_fill(ctx0, ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, n_head), 0.0f);
             }
             sinks = zero;
+
+            if (use_indexed_bias(il, is_swa, table->ne[0], n_kv)) {
+                cur = build_attn(inp,
+                        nullptr, nullptr, nullptr,
+                        Qcur, Kcur, Vcur, table, sinks, 1.0f/sqrtf(n_embd_head), il, 0, rel_pos);
+            } else {
+            table = ggml_cont(ctx0, ggml_permute(ctx0, table, 1, 0, 2, 3));
 
             // dense bias is n_kv x n_tokens x n_head: chunk query rows past the budget
             const int64_t n_seq_tokens = n_tokens/n_stream;
@@ -624,6 +671,7 @@ ggml_tensor * llama_model_inkling2::graph::build_layer(int il, int ip, ggml_tens
             }
             if (out_all) {
                 cur = ggml_reshape_2d(ctx0, out_all, out_all->ne[0], n_tokens);
+            }
             }
         }
 
