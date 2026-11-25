@@ -249,3 +249,14 @@ Chat template and parser:
 
 Testing:
 - [Slice model](skills/slice-model/SKILL.md) - build a small slice (few layers/experts) of a big HF model without downloading the full weights, to test conversion and inference
+
+## `af-engn` Fork: Upstream Sync & Backports
+
+`main` is layered as: `upstream/master` -> permanent `af-engn` commits (`IQ*_K` / `IQ*_KT` / `IQ*_BN` / custom features) -> temporary `backport(pr:<repo>#<num>): <summary>` commits tracked in [BACKPORTS.md](BACKPORTS.md). Do not mix permanent `af-engn` changes into backport commits.
+
+When rebasing onto a newer `upstream/master`:
+1. Run `git fetch upstream --tags`.
+2. Check every entry in [BACKPORTS.md](BACKPORTS.md) against `upstream/master` (`gh pr view` or `git log upstream/master`) to identify merged or superseded upstream PRs.
+3. Run `git rebase -i upstream/master` and **drop** every `backport(pr:...)` commit (and companion local fix) whose upstream PR has landed - never merge-conflict a stale backport against a newly merged upstream version.
+4. Replay only permanent `af-engn` commits and still-unmerged `backport(pr:...)` commits, prune dropped rows from [BACKPORTS.md](BACKPORTS.md), and verify whether remaining Unsloth backports need repinning for the new base.
+5. Keep `upstream`, `unsloth`, and `ik_llama` push URLs set to `DISABLE`.
