@@ -42,6 +42,7 @@ Base: `upstream` `b12635` (permanent `af-engn` tip `2dd3c1e21`).
 | `93bc1d0c9` | `unslothai/llama.cpp#413` (`627b5434a`, includes F16 cast fix over `260b1ffa4`) | Unsloth-only (CUDA fused relative-position bias in vector FA) | OPEN on Unsloth; drop when CUDA fused rel-bias vector FA lands in `upstream/master` |
 | `8c5a7945e` | `ggml-org/llama.cpp#32740` (`239242322`) | `ggml-org/llama.cpp#32740` (MERGED 2026-11-23) | MERGED on `upstream/master`; drop on next `upstream/master` rebase |
 | `bf984cf55` | `ggml-org/llama.cpp#32898` (`ce1e24697`) | `ggml-org/llama.cpp#32898` (OPEN) | OPEN upstream; drop once `#32898` merges into `upstream/master` |
+| `fd9983b03` | `ggml-org/llama.cpp#32773` (`61031e7d2`) | `ggml-org/llama.cpp#32773` (OPEN) | OPEN upstream; opt-in `LLAMA_SPEC_ADAPT` adaptive pausing + `p_min` draft confidence on Inkling2 DSpark; drop once `#32773` merges or is closed/superseded |
 
 ## Companion Local Fixes (Non-`backport(pr:)` Commits)
 
@@ -50,6 +51,6 @@ Base: `upstream` `b12635` (permanent `af-engn` tip `2dd3c1e21`).
 | `ef33165cb` | `fix(cpu): enable indexed-bias FLASH_ATTN_EXT in CPU supports_op` — removes accidental early return in `ggml_backend_cpu_device_supports_op()` shipped in `#32740` so CPU reference & `test-backend-ops` run | Drop once `upstream/master` removes the early return in `ggml/src/ggml-cpu/ggml-cpu.cpp` |
 | `7d5138f38` | `feat(inkling2): wire compact indexed-bias FLASH_ATTN_EXT for non-banded backends` — connects `inkling2.cpp` to `#32740`/`#32898` indexed-bias FA on Vulkan while keeping `#386` banded FA on CUDA and `#385` chunking fallback | Drop once `upstream/master` wires `inkling2.cpp` to compact indexed-bias `FLASH_ATTN_EXT` |
 
-## Inspected & Not Ported
+## Operational Tuning Notes
 
-- `ggml-org/llama.cpp#32773` (OPEN): measurement report + optional `LLAMA_SPEC_ADAPT` / `p_min` patch in `common/speculative.cpp`. Its primary +68% RADV 16 GB decode fix is operational (`-ctkd q4_0 -ctvd q4_0`, already supported in `common/arg.cpp` + fixed `--spec-draft-n-max 4`); adaptive pausing regressed code throughput (80 -> 73 tok/s) and is unmerged. Re-evaluate only if merged upstream or requested.
+- **RADV Vulkan 16 GB VRAM (`#32773` findings):** set `-ctkd q4_0 -ctvd q4_0` (already wired in `common/arg.cpp`) and fixed `--spec-draft-n-max 4` to avoid VRAM spill and ~25 ms verification batch-size graph-rebuild churn on 12k-node graphs; `LLAMA_SPEC_ADAPT=0.33` is opt-in (off by default) to cut prose overhead.
