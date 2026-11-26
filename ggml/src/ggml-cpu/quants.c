@@ -613,6 +613,36 @@ void ggml_vec_dot_iq1_bn_q8_1(int n, float * GGML_RESTRICT s, size_t bs, const v
     *s = d * sumf;
 }
 
+void ggml_vec_dot_iq2_bn_q8_1(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_IQ2BN == 0);
+    assert(nrc == 1);
+    UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);
+    float d;
+    memcpy(&d, vx, sizeof(d));
+    const block_iq2_bn * x = (const block_iq2_bn *)((const char *)vx + sizeof(d));
+    const block_q8_1   * y = (const block_q8_1 *)vy;
+
+    const int nb = n / QK_IQ2BN;
+    float sumf = 0.0f;
+    for (int i = 0; i < nb; ++i) {
+        const uint8_t * qs = x[i].qs;
+        const int8_t * q8_0 = y[2*i + 0].qs;
+        const int8_t * q8_1 = y[2*i + 1].qs;
+        int sumi0 = 0;
+        int sumi1 = 0;
+        for (int j = 0; j < 16; ++j) {
+            const uint8_t q = qs[j];
+            sumi0 += q8_0[j +  0] * ((int)((q >> 0) & 3u) - 1);
+            sumi0 += q8_0[j + 16] * ((int)((q >> 2) & 3u) - 1);
+            sumi1 += q8_1[j +  0] * ((int)((q >> 4) & 3u) - 1);
+            sumi1 += q8_1[j + 16] * ((int)((q >> 6) & 3u) - 1);
+        }
+        sumf += GGML_FP16_TO_FP32(y[2*i + 0].d) * sumi0;
+        sumf += GGML_FP16_TO_FP32(y[2*i + 1].d) * sumi1;
+    }
+    *s = d * sumf;
+}
+
 void ggml_vec_dot_iq3_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0 && nrc == 1);
     UNUSED(bs); UNUSED(bx); UNUSED(by); UNUSED(nrc);

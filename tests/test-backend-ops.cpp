@@ -11276,7 +11276,7 @@ static const ggml_type all_types[] = {
     GGML_TYPE_TQ1_0,
     GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ2_XS, GGML_TYPE_IQ2_S,
     GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ1_S, GGML_TYPE_IQ1_M,
-    GGML_TYPE_IQ4_NL, GGML_TYPE_IQ3_S, GGML_TYPE_IQ4_XS, GGML_TYPE_IQ4_K, GGML_TYPE_IQ2_K, GGML_TYPE_IQ2_KS, GGML_TYPE_IQ3_KS, GGML_TYPE_IQ4_KS, GGML_TYPE_IQ4_KSS, GGML_TYPE_IQ5_KS, GGML_TYPE_IQ1_KT, GGML_TYPE_IQ2_KT, GGML_TYPE_IQ3_KT, GGML_TYPE_IQ4_KT, GGML_TYPE_IQ2_KL, GGML_TYPE_IQ1_BN, GGML_TYPE_IQ3_K, GGML_TYPE_IQ5_K, GGML_TYPE_IQ6_K,
+    GGML_TYPE_IQ4_NL, GGML_TYPE_IQ3_S, GGML_TYPE_IQ4_XS, GGML_TYPE_IQ4_K, GGML_TYPE_IQ2_K, GGML_TYPE_IQ2_KS, GGML_TYPE_IQ3_KS, GGML_TYPE_IQ4_KS, GGML_TYPE_IQ4_KSS, GGML_TYPE_IQ5_KS, GGML_TYPE_IQ1_KT, GGML_TYPE_IQ2_KT, GGML_TYPE_IQ3_KT, GGML_TYPE_IQ4_KT, GGML_TYPE_IQ2_KL, GGML_TYPE_IQ1_BN, GGML_TYPE_IQ2_BN, GGML_TYPE_IQ3_K, GGML_TYPE_IQ5_K, GGML_TYPE_IQ6_K,
 };
 
 static const ggml_type base_types[] = {
@@ -11291,7 +11291,7 @@ static const ggml_type base_types[] = {
     GGML_TYPE_F8_E4M3,
     GGML_TYPE_IQ2_XXS,
     GGML_TYPE_IQ4_K,
-    GGML_TYPE_IQ2_K, GGML_TYPE_IQ2_KS, GGML_TYPE_IQ3_KS, GGML_TYPE_IQ4_KS, GGML_TYPE_IQ4_KSS, GGML_TYPE_IQ5_KS, GGML_TYPE_IQ1_KT, GGML_TYPE_IQ2_KT, GGML_TYPE_IQ3_KT, GGML_TYPE_IQ4_KT, GGML_TYPE_IQ2_KL, GGML_TYPE_IQ1_BN,
+    GGML_TYPE_IQ2_K, GGML_TYPE_IQ2_KS, GGML_TYPE_IQ3_KS, GGML_TYPE_IQ4_KS, GGML_TYPE_IQ4_KSS, GGML_TYPE_IQ5_KS, GGML_TYPE_IQ1_KT, GGML_TYPE_IQ2_KT, GGML_TYPE_IQ3_KT, GGML_TYPE_IQ4_KT, GGML_TYPE_IQ2_KL, GGML_TYPE_IQ1_BN, GGML_TYPE_IQ2_BN,
     GGML_TYPE_IQ3_K,
     GGML_TYPE_IQ5_K,
     GGML_TYPE_IQ6_K
@@ -11541,11 +11541,14 @@ for (int k : {256, 512}) {
             test_cases.emplace_back(new test_mul_mat_id_dup(GGML_TYPE_IQ2_KL, GGML_TYPE_F32, 4, 2, b, 8, 3, k, 16, true, false));
             test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_IQ1_BN, GGML_TYPE_F32, 4, 2, b, 8, 3, k, 16, true, true));
             test_cases.emplace_back(new test_mul_mat_id_dup(GGML_TYPE_IQ1_BN, GGML_TYPE_F32, 4, 2, b, 8, 3, k, 16, true, false));
+            test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_IQ2_BN, GGML_TYPE_F32, 4, 2, b, 8, 3, k, 16, true, true));
+            test_cases.emplace_back(new test_mul_mat_id_dup(GGML_TYPE_IQ2_BN, GGML_TYPE_F32, 4, 2, b, 8, 3, k, 16, true, false));
     }
 }
     for (int n : {64, 128, 192, 256, 320, 384, 448, 512, 1024, 2048}) {
         for (bool v : {false, true}) {
             test_cases.emplace_back(new test_get_rows(GGML_TYPE_IQ1_BN, n, 5, 4, 7, 2, v, true));
+            test_cases.emplace_back(new test_get_rows(GGML_TYPE_IQ2_BN, n, 5, 4, 7, 2, v, true));
         }
     }
 

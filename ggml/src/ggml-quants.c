@@ -2872,6 +2872,26 @@ void dequantize_row_iq1_bn(const void * GGML_RESTRICT vx, float * GGML_RESTRICT 
     }
 }
 
+void dequantize_row_iq2_bn(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_IQ2BN == 0);
+    const int64_t nb = k / QK_IQ2BN;
+    float d;
+    memcpy(&d, vx, sizeof(d));
+    const block_iq2_bn * x = (const block_iq2_bn *)((const char *)vx + sizeof(d));
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const uint8_t * qs = x[ib].qs;
+        for (int j = 0; j < 16; ++j) {
+            const uint8_t q = qs[j];
+            y[j +  0] = d * (float)((int)((q >> 0) & 3u) - 1);
+            y[j + 16] = d * (float)((int)((q >> 2) & 3u) - 1);
+            y[j + 32] = d * (float)((int)((q >> 4) & 3u) - 1);
+            y[j + 48] = d * (float)((int)((q >> 6) & 3u) - 1);
+        }
+        y += QK_IQ2BN;
+    }
+}
+
 void dequantize_row_iq3_ks(const block_iq3_ks * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;

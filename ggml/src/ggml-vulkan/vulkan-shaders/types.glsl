@@ -2021,6 +2021,35 @@ uint32_t extra_pad;
 #define A_TYPE_PACKED32 uint32_t
 #endif
 
+#define QUANT_K_IQ2_BN 64
+#define QUANT_R_IQ2_BN 1
+
+// IQ2_BN: row-level d is a 4-byte fp32 prefix (row_meta_size=4), not in the
+// block. 16-byte blocks per 64 values: uint8_t qs[16] of packed 2-bit ternary
+// codes. Byte-level SSBO addressing handles the row prefix.
+struct block_iq2_bn
+{
+uint8_t qs[16];
+};
+
+struct block_iq2_bn_packed16
+{
+uint16_t qs[8];
+};
+
+struct block_iq2_bn_packed32
+{
+uint32_t qs[4];
+};
+
+#if defined(DATA_A_IQ2_BN)
+#define QUANT_K QUANT_K_IQ2_BN
+#define QUANT_R QUANT_R_IQ2_BN
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ4_KS 256
 #define QUANT_R_IQ4_KS 1
 

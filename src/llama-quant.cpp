@@ -490,6 +490,7 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
             case GGML_TYPE_IQ3_S:   // types on the right: block size 32
             case GGML_TYPE_IQ4_XS:  return_type = GGML_TYPE_IQ4_NL; break;
         case GGML_TYPE_IQ1_BN:  return_type = GGML_TYPE_IQ4_NL; break;
+        case GGML_TYPE_IQ2_BN:  return_type = GGML_TYPE_IQ4_NL; break;
             // custom K-family types have no smaller block to demote to
             case GGML_TYPE_IQ2_K:
             case GGML_TYPE_IQ3_K:
@@ -1034,6 +1035,7 @@ case LLAMA_FTYPE_MOSTLY_IQ3_KT: return GGML_TYPE_IQ3_KT;
 case LLAMA_FTYPE_MOSTLY_IQ4_KT: return GGML_TYPE_IQ4_KT;
         case LLAMA_FTYPE_MOSTLY_IQ2_KL: return GGML_TYPE_IQ2_KL;
         case LLAMA_FTYPE_MOSTLY_IQ1_BN: return GGML_TYPE_IQ1_BN;
+        case LLAMA_FTYPE_MOSTLY_IQ2_BN: return GGML_TYPE_IQ2_BN;
         case LLAMA_FTYPE_MOSTLY_IQ3_KS: return GGML_TYPE_IQ3_KS;
         case LLAMA_FTYPE_MOSTLY_IQ2_K:   return GGML_TYPE_IQ2_K;
         case LLAMA_FTYPE_MOSTLY_IQ3_K:   return GGML_TYPE_IQ3_K;

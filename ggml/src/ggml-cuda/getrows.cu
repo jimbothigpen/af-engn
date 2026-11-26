@@ -102,6 +102,26 @@ yr[i] = ggml_cuda_cast<dst_t>(iq1_bn_value(xr,i));
 }
 }
 
+template<typename dst_t>
+static __global__ void k_get_rows_iq2_bn(
+const void * src0, const int32_t * src1, dst_t * dst,
+int64_t width, int64_t ne11, uint3 ne12_fdv,
+size_t s1, size_t s2, size_t s3,
+size_t nb01, size_t nb02, size_t nb03,
+size_t s10, size_t s11, size_t s12) {
+ggml_cuda_pdl_sync();
+for (int64_t z = blockIdx.z; z < ne11*(int64_t)ne12_fdv.z; z += gridDim.z) {
+const uint2 dm = fast_div_modulo((uint32_t)z, ne12_fdv);
+const int64_t i10 = blockIdx.x;
+const int32_t row = src1[i10*s10+dm.x*s11+dm.y*s12];
+const void * xr = (const char *)src0+row*nb01+dm.x*nb02+dm.y*nb03;
+dst_t * yr = dst+i10*s1+dm.x*s2+dm.y*s3;
+for (int64_t i = blockIdx.y*blockDim.x+threadIdx.x; i < width; i += gridDim.y*blockDim.x) {
+yr[i] = ggml_cuda_cast<dst_t>(iq2_bn_value(xr,i));
+}
+}
+}
+
 template<int qk, int qr, dequantize_kernel_t dequantize_kernel, typename dst_t>
 static __global__ void k_get_rows(
         const void * __restrict__ src0, const int32_t * __restrict__ src1, dst_t * __restrict__ dst,
@@ -565,6 +585,15 @@ GGML_ASSERT(ne00 > 0 && ne00%QK_IQ1BN == 0 && ne12 > 0);
 GGML_ASSERT(ne11 <= std::numeric_limits<uint32_t>::max()/ne12);
 const dim3 grid(ne10, MIN((ne00+255)/256, UINT16_MAX), MIN(ne11*ne12, UINT16_MAX));
 k_get_rows_iq1_bn<dst_t><<<grid, 256, 0, stream>>>(src0_d, src1_d, dst_d,
+ne00, ne11, init_fastdiv_values(ne12), nb1/sizeof(dst_t), nb2/sizeof(dst_t), nb3/sizeof(dst_t),
+nb01, nb02, nb03, nb10/sizeof(int32_t), nb11/sizeof(int32_t), nb12/sizeof(int32_t));
+break;
+}
+case GGML_TYPE_IQ2_BN: {
+GGML_ASSERT(ne00 > 0 && ne00%QK_IQ2BN == 0 && ne12 > 0);
+GGML_ASSERT(ne11 <= std::numeric_limits<uint32_t>::max()/ne12);
+const dim3 grid(ne10, MIN((ne00+255)/256, UINT16_MAX), MIN(ne11*ne12, UINT16_MAX));
+k_get_rows_iq2_bn<dst_t><<<grid, 256, 0, stream>>>(src0_d, src1_d, dst_d,
 ne00, ne11, init_fastdiv_values(ne12), nb1/sizeof(dst_t), nb2/sizeof(dst_t), nb3/sizeof(dst_t),
 nb01, nb02, nb03, nb10/sizeof(int32_t), nb11/sizeof(int32_t), nb12/sizeof(int32_t));
 break;

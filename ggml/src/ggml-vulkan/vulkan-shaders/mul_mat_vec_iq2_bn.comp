@@ -1,0 +1,55 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+
+void compute_outputs(uint first_row, uint num_rows) {
+    uint a_offset, b_offset, d_offset;
+    get_offsets(a_offset, b_offset, d_offset);
+    const uint nb = p.ncols / 64;
+    const uint row_bytes = 4 + nb * 16;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint j16 = tid % 16;
+
+    for (uint j = 0; j < NUM_COLS; ++j) {
+        for (uint n = 0; n < NUM_ROWS; ++n) {
+            temp[j][n] = FLOAT_TYPE(0);
+        }
+    }
+
+    // One thread handles the j-th byte (four 2-bit codes) of every 64-weight
+    // block; 16 threads per block cover all 16 bytes -> 64 values.
+    for (uint i = tid / 16; i < nb; i += gl_WorkGroupSize.x / 16) {
+        for (uint n = 0; n < num_rows; ++n) {
+            const uint row_offset = (a_offset / nb + first_row + n) * row_bytes;
+            const uint block_offset = row_offset + 4 + i * 16;
+            const float d = uintBitsToFloat(uint(data_a[row_offset]) |
+                                            (uint(data_a[row_offset + 1]) << 8) |
+                                            (uint(data_a[row_offset + 2]) << 16) |
+                                            (uint(data_a[row_offset + 3]) << 24));
+            const uint q = uint(data_a[block_offset + j16]);
+
+            for (uint j = 0; j < NUM_COLS; ++j) {
+                const uint base = j * p.batch_stride_b + b_offset + i * 64 + j16;
+                FLOAT_TYPE acc = FLOAT_TYPE(0);
+                [[unroll]] for (uint k = 0; k < 4; ++k) {
+                    const uint code = (q >> (2 * k)) & 3u;
+                    acc = fma(FLOAT_TYPE(data_b[base + 16 * k]), FLOAT_TYPE(int(code) - 1), acc);
+                }
+                temp[j][n] = fma(FLOAT_TYPE(d), acc, temp[j][n]);
+            }
+        }
+    }
+    reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+    const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+    if (first_row >= p.stride_d) {
+        return;
+    }
+    compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

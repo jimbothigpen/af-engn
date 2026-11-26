@@ -1,0 +1,38 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+void main() {
+// 256 threads; each thread decodes one 64-weight block: 1 thread per block,
+// 256 blocks per workgroup -> 16384 values per workgroup (host denominator
+// 256 * 64). Each block_iq2_bn is 16 bytes of packed 2-bit ternary codes.
+const uint tid = gl_LocalInvocationID.x;
+const uint ib = gl_WorkGroupID.x * 256 + tid;
+if (ib >= p.nel / QUANT_K) {
+    return;
+}
+
+const uint nb = p.K / QUANT_K;
+const uint row_bytes = 4 + nb * 16;
+const uint row_offset = (ib / nb) * row_bytes;
+const uint block_offset = row_offset + 4 + (ib % nb) * 16;
+const float d = uintBitsToFloat(uint(data_a_bytes[row_offset]) |
+                                (uint(data_a_bytes[row_offset + 1]) << 8) |
+                                (uint(data_a_bytes[row_offset + 2]) << 16) |
+                                (uint(data_a_bytes[row_offset + 3]) << 24));
+
+for (uint j = 0; j < 16; ++j) {
+    const uint q = uint(data_a_bytes[block_offset + j]);
+    [[unroll]] for (uint k = 0; k < 4; ++k) {
+        const uint code = (q >> (2 * k)) & 3u;
+        data_b[QUANT_K * ib + j + 16 * k] = D_TYPE(d * float(int(code) - 1));
+    }
+}
+}

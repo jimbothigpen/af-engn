@@ -251,6 +251,25 @@ static __device__ __forceinline__ void dequantize_iq1_bn(const void * row, const
     }
 }
 
+
+static __device__ __forceinline__ float iq2_bn_value(const void * row, int64_t i) {
+    float d;
+    memcpy(&d, row, sizeof(d));
+    const block_iq2_bn * x = (const block_iq2_bn *)((const char *) row + sizeof(d)) + (i / QK_IQ2BN);
+    const int in_block = (int)(i % QK_IQ2BN);
+    const int j = in_block % 16;
+    const int k = in_block / 16;
+    const int code = (x->qs[j] >> (2*k)) & 3;
+    return d * (float)(code - 1);
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_iq2_bn(const void * row, const int64_t ib, dst_t * y, const int tid) {
+    for (int j = tid; j < QK_IQ2BN; j += 32) {
+        y[j] = ggml_cuda_cast<dst_t>(iq2_bn_value(row, ib*QK_IQ2BN + j));
+    }
+}
+
 static __device__ __forceinline__ float iq3_ks_value(const void * row, int64_t i) {
 const block_iq3_ks & b = ((const block_iq3_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
 const int e = i % QK_K;

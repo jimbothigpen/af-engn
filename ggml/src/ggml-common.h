@@ -488,6 +488,13 @@ uint8_t extra;
 } block_iq1_bn;
 static_assert(sizeof(block_iq1_bn) == 13, "wrong iq1_bn block size/padding");
 
+// Bitnet b1.58 packed 2-bit ternary: 64 weights per 16-byte block, 4-byte fp32 row scale prefix
+#define QK_IQ2BN 64
+typedef struct {
+    uint8_t qs[QK_IQ2BN/4];
+} block_iq2_bn;
+static_assert(sizeof(block_iq2_bn) == QK_IQ2BN/4, "wrong iq2_bn block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta
