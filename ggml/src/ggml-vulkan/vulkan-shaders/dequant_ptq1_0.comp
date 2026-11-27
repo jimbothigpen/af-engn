@@ -1,0 +1,52 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+const uint pow3[5] = uint[5](1u, 3u, 9u, 27u, 81u);
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ib = gl_WorkGroupID.x * 256 + tid;
+    if (ib >= p.nel / QUANT_K) {
+        return;
+    }
+
+    const uint block_offset = ib * 28u;
+    const float d = unpackHalf2x16(uint(data_a_bytes[block_offset + 26u]) | (uint(data_a_bytes[block_offset + 27u]) << 8u)).x;
+    const uint out_base = QUANT_K * ib;
+
+    for (uint n = 0u; n < 5u; ++n) {
+        const uint p3 = pow3[n];
+        for (uint m = 0u; m < 16u; ++m) {
+            const uint b = uint(data_a_bytes[block_offset + m]);
+            const uint q = (b * p3) & 0xFFu;
+            const int xi = int((q * 3u) >> 8u);
+            data_b[out_base + n * 16u + m] = D_TYPE(float(xi - 1) * d);
+        }
+    }
+    for (uint n = 0u; n < 5u; ++n) {
+        const uint p3 = pow3[n];
+        for (uint m = 0u; m < 8u; ++m) {
+            const uint b = uint(data_a_bytes[block_offset + 16u + m]);
+            const uint q = (b * p3) & 0xFFu;
+            const int xi = int((q * 3u) >> 8u);
+            data_b[out_base + 80u + n * 8u + m] = D_TYPE(float(xi - 1) * d);
+        }
+    }
+    for (uint n = 0u; n < 4u; ++n) {
+        const uint p3 = pow3[n];
+        for (uint h = 0u; h < 2u; ++h) {
+            const uint b = uint(data_a_bytes[block_offset + 24u + h]);
+            const uint q = (b * p3) & 0xFFu;
+            const int xi = int((q * 3u) >> 8u);
+            data_b[out_base + 120u + n * 2u + h] = D_TYPE(float(xi - 1) * d);
+        }
+    }
+}

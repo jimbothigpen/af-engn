@@ -179,6 +179,7 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_IQ1_KT        = 156,
         LLAMA_FTYPE_MOSTLY_IQ2_KT        = 151,
         LLAMA_FTYPE_MOSTLY_PQ2_0         = 157,
+        LLAMA_FTYPE_MOSTLY_PTQ1_0        = 158,
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };

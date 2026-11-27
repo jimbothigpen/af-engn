@@ -1,0 +1,67 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+
+const uint pow3[5] = uint[5](1u, 3u, 9u, 27u, 81u);
+
+void compute_outputs(uint first_row, uint num_rows) {
+    uint a_offset, b_offset, d_offset;
+    get_offsets(a_offset, b_offset, d_offset);
+    const uint nb = p.ncols / 128u;
+    const uint row_bytes = nb * 28u;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint j16 = tid % 16u;
+
+    for (uint j = 0u; j < NUM_COLS; ++j) {
+        for (uint n = 0u; n < NUM_ROWS; ++n) {
+            temp[j][n] = FLOAT_TYPE(0);
+        }
+    }
+
+    for (uint i = tid / 16u; i < nb; i += gl_WorkGroupSize.x / 16u) {
+        for (uint n = 0u; n < num_rows; ++n) {
+            const uint block_offset = (a_offset / nb + first_row + n) * row_bytes + i * 28u;
+            const float d = unpackHalf2x16(uint(data_a[block_offset + 26u]) | (uint(data_a[block_offset + 27u]) << 8u)).x;
+            const uint b0 = uint(data_a[block_offset + j16]);
+            const uint b1 = j16 < 8u ? uint(data_a[block_offset + 16u + j16]) : (j16 < 10u ? uint(data_a[block_offset + 24u + (j16 - 8u)]) : 0u);
+
+            for (uint j = 0u; j < NUM_COLS; ++j) {
+                const uint base = j * p.batch_stride_b + b_offset + i * 128u;
+                FLOAT_TYPE acc = FLOAT_TYPE(0);
+                [[unroll]] for (uint t = 0u; t < 5u; ++t) {
+                    const uint q = (b0 * pow3[t]) & 0xFFu;
+                    const int xi = int((q * 3u) >> 8u);
+                    acc = fma(FLOAT_TYPE(data_b[base + t * 16u + j16]), FLOAT_TYPE(xi - 1), acc);
+                }
+                if (j16 < 8u) {
+                    [[unroll]] for (uint t = 0u; t < 5u; ++t) {
+                        const uint q = (b1 * pow3[t]) & 0xFFu;
+                        const int xi = int((q * 3u) >> 8u);
+                        acc = fma(FLOAT_TYPE(data_b[base + 80u + t * 8u + j16]), FLOAT_TYPE(xi - 1), acc);
+                    }
+                } else if (j16 < 10u) {
+                    const uint h = j16 - 8u;
+                    [[unroll]] for (uint t = 0u; t < 4u; ++t) {
+                        const uint q = (b1 * pow3[t]) & 0xFFu;
+                        const int xi = int((q * 3u) >> 8u);
+                        acc = fma(FLOAT_TYPE(data_b[base + 120u + t * 2u + h]), FLOAT_TYPE(xi - 1), acc);
+                    }
+                }
+                temp[j][n] = fma(FLOAT_TYPE(d), acc, temp[j][n]);
+            }
+        }
+    }
+    reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+    const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+    if (first_row >= p.stride_d) {
+        return;
+    }
+    compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

@@ -503,6 +503,61 @@ mul_mat_pq2_0_kernel<<<grid,256,0,ctx.stream()>>>((const char *)src0->data,
 a,b,d,ids ? ids->nb[1] : 0);
 }
 
+struct ptq1_0_shape {
+int64_t ne[4];
+size_t  nb[4];
+};
+
+static __global__ void mul_mat_ptq1_0_kernel(const char * x, const char * y, const char * ids, char * dst,
+ptq1_0_shape a, ptq1_0_shape b, ptq1_0_shape d, size_t ids_stride) {
+__shared__ float sums[256];
+const int64_t row  = blockIdx.x;
+const int64_t slot = blockIdx.y;
+for (int64_t z = blockIdx.z; z < d.ne[2]*d.ne[3]; z += gridDim.z) {
+const int64_t channel = z % d.ne[2];
+const int64_t sample  = z / d.ne[2];
+const int32_t id = ids ? *(const int32_t *)(ids + channel*ids_stride + slot*sizeof(int32_t)) : 0;
+const bool    skip   = ids && id < 0;
+const int64_t expert = ids ? int64_t(skip ? 0 : id) : channel/(d.ne[2]/a.ne[2]);
+const char * xr = x + row*a.nb[1] + expert*a.nb[2] + (sample/(d.ne[3]/a.ne[3]))*a.nb[3];
+const char * yr = ids ? y + (slot % b.ne[1])*b.nb[1] + channel*b.nb[2]
+: y + slot*b.nb[1] + channel*b.nb[2] + sample*b.nb[3];
+float sum = 0.0f;
+if (!skip) {
+for (int64_t k = threadIdx.x; k < a.ne[0]; k += blockDim.x) {
+sum += ptq1_0_value(xr, k) * *(const float *)(yr + k*b.nb[0]);
+}
+}
+sums[threadIdx.x] = sum;
+__syncthreads();
+for (int n = 128; n > 0; n /= 2) {
+if (threadIdx.x < n) {
+sums[threadIdx.x] += sums[threadIdx.x+n];
+}
+__syncthreads();
+}
+if (threadIdx.x == 0) {
+*(float *)(dst + row*d.nb[0] + slot*d.nb[1] + channel*d.nb[2] + sample*d.nb[3]) = sums[0];
+}
+__syncthreads();
+}
+}
+
+void ggml_cuda_mul_mat_ptq1_0(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst) {
+GGML_ASSERT(src0->ne[0] > 0 && src0->ne[0]%QK_PTQ1_0 == 0 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+ptq1_0_shape a{}, b{}, d{};
+for (int i = 0; i < 4; ++i) {
+a.ne[i] = src0->ne[i]; a.nb[i] = src0->nb[i];
+b.ne[i] = src1->ne[i]; b.nb[i] = src1->nb[i];
+d.ne[i] = dst->ne[i]; d.nb[i] = dst->nb[i];
+}
+const dim3 grid(dst->ne[0],dst->ne[1],std::min<int64_t>(dst->ne[2]*dst->ne[3],65535));
+mul_mat_ptq1_0_kernel<<<grid,256,0,ctx.stream()>>>((const char *)src0->data,
+(const char *)src1->data,ids ? (const char *)ids->data : nullptr,(char *)dst->data,
+a,b,d,ids ? ids->nb[1] : 0);
+}
+
 static __global__ void mul_mat_iq2_ks_kernel(const char * x, const char * y, const char * ids, char * dst,
         iq2_ks_shape a, iq2_ks_shape b, iq2_ks_shape d, size_t ids_stride) {
     __shared__ float sums[256];

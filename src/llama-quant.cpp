@@ -509,6 +509,7 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
             case GGML_TYPE_IQ2_KL:  return_type = GGML_TYPE_IQ4_NL; break;
             case GGML_TYPE_Q2_0:
             case GGML_TYPE_PQ2_0:
+            case GGML_TYPE_PTQ1_0:
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q3_K:
             case GGML_TYPE_TQ1_0:
@@ -1039,6 +1040,7 @@ case LLAMA_FTYPE_MOSTLY_IQ4_KT: return GGML_TYPE_IQ4_KT;
         case LLAMA_FTYPE_MOSTLY_IQ2_BN: return GGML_TYPE_IQ2_BN;
         case LLAMA_FTYPE_MOSTLY_Q6_0: return GGML_TYPE_Q6_0;
         case LLAMA_FTYPE_MOSTLY_PQ2_0: return GGML_TYPE_PQ2_0;
+        case LLAMA_FTYPE_MOSTLY_PTQ1_0: return GGML_TYPE_PTQ1_0;
         case LLAMA_FTYPE_MOSTLY_IQ3_KS: return GGML_TYPE_IQ3_KS;
         case LLAMA_FTYPE_MOSTLY_IQ2_K:   return GGML_TYPE_IQ2_K;
         case LLAMA_FTYPE_MOSTLY_IQ3_K:   return GGML_TYPE_IQ3_K;

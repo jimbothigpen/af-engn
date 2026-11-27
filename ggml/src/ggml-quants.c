@@ -2906,6 +2906,39 @@ void dequantize_row_pq2_0(const block_pq2_0 * GGML_RESTRICT x, float * GGML_REST
     }
 }
 
+void dequantize_row_ptq1_0(const block_ptq1_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_PTQ1_0 == 0);
+    const int64_t nb = k / QK_PTQ1_0;
+
+    static const uint8_t pow3[6] = {1, 3, 9, 27, 81, 243};
+    static const size_t  stages[2] = {16, 8};
+
+    for (int64_t i = 0; i < nb; ++i) {
+        const float d = GGML_FP16_TO_FP32(x[i].d);
+
+        size_t j = 0;
+        for (size_t s = 0; s < 2; ++s) {
+            const size_t c = stages[s];
+            for (; j + c <= sizeof(x->qs); j += c) {
+                for (size_t n = 0; n < 5; ++n) {
+                    for (size_t m = 0; m < c; ++m) {
+                        uint8_t q = (uint8_t)(x[i].qs[j + m] * pow3[n]);
+                        int16_t xi = ((uint16_t)q * 3) >> 8;
+                        *y++ = (float)(xi - 1) * d;
+                    }
+                }
+            }
+        }
+        for (size_t n = 0; n < 4; ++n) {
+            for (size_t h = 0; h < sizeof(x->qh); ++h) {
+                uint8_t q = (uint8_t)(x[i].qh[h] * pow3[n]);
+                int16_t xi = ((uint16_t)q * 3) >> 8;
+                *y++ = (float)(xi - 1) * d;
+            }
+        }
+    }
+}
+
 void dequantize_row_q6_0(const block_q6_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     static const int qk = QK6_0;
     assert(k % qk == 0);
@@ -6571,6 +6604,10 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
         case GGML_TYPE_PQ2_0:
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_pq2_0, data, nb);
+            } break;
+        case GGML_TYPE_PTQ1_0:
+            {
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_ptq1_0, data, nb);
             } break;
 
         case GGML_TYPE_I8:

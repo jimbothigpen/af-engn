@@ -469,11 +469,13 @@ static bool ggml_backend_cpu_device_supports_op(ggml_backend_dev_t dev, const st
     }
 
     if ((op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) &&
-
         src0->type == GGML_TYPE_PQ2_0 && src0->ne[0] % QK_PQ2_0 != 0) {
-
         return false;
+    }
 
+    if ((op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) &&
+        src0->type == GGML_TYPE_PTQ1_0 && src0->ne[0] % QK_PTQ1_0 != 0) {
+        return false;
     }
 
 

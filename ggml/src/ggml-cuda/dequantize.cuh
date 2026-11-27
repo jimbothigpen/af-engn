@@ -302,6 +302,35 @@ static __device__ __forceinline__ void dequantize_pq2_0(const void * row, const 
     }
 }
 
+static __device__ __forceinline__ float ptq1_0_value(const void * row, int64_t i) {
+    static constexpr uint32_t pow3[5] = {1u, 3u, 9u, 27u, 81u};
+    const block_ptq1_0 * x = (const block_ptq1_0 *) row + (i / QK_PTQ1_0);
+    const uint32_t e = (uint32_t)(i % QK_PTQ1_0);
+    uint32_t b, n;
+    if (e < 80u) {
+        n = e >> 4;
+        b = x->qs[e & 15u];
+    } else if (e < 120u) {
+        const uint32_t u = e - 80u;
+        n = u >> 3;
+        b = x->qs[16u + (u & 7u)];
+    } else {
+        const uint32_t u = e - 120u;
+        n = u >> 1;
+        b = x->qh[u & 1u];
+    }
+    const uint32_t q  = (b * pow3[n]) & 0xFFu;
+    const int      xi = (int)((q * 3u) >> 8);
+    return (float)(xi - 1) * __half2float(x->d);
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_ptq1_0(const void * row, const int64_t ib, dst_t * y, const int tid) {
+    for (int j = tid; j < QK_PTQ1_0; j += 32) {
+        y[j] = ggml_cuda_cast<dst_t>(ptq1_0_value(row, ib*QK_PTQ1_0 + j));
+    }
+}
+
 static __device__ __forceinline__ float iq3_ks_value(const void * row, int64_t i) {
 const block_iq3_ks & b = ((const block_iq3_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
 const int e = i % QK_K;
