@@ -2075,6 +2075,29 @@ struct block_q6_0_packed16
 #define A_TYPE_PACKED32 uint32_t
 #endif
 
+#define QUANT_K_PQ2_0 128
+#define QUANT_R_PQ2_0 1
+
+struct block_pq2_0
+{
+    float16_t d;
+    uint8_t qs[32];
+};
+
+struct block_pq2_0_packed16
+{
+    float16_t d;
+    uint16_t qs[16];
+};
+
+#if defined(DATA_A_PQ2_0)
+#define QUANT_K QUANT_K_PQ2_0
+#define QUANT_R QUANT_R_PQ2_0
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ4_KS 256
 #define QUANT_R_IQ4_KS 1
 

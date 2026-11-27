@@ -161,6 +161,7 @@ int main(int argc, char ** argv) {
         { LLAMA_FTYPE_MOSTLY_IQ1_BN,  "IQ1_BN",  GGML_TYPE_IQ1_BN  , 0.9 },
     { LLAMA_FTYPE_MOSTLY_IQ2_BN,  "IQ2_BN",  GGML_TYPE_IQ2_BN  , 0.9 },
     { LLAMA_FTYPE_MOSTLY_Q6_0,  "Q6_0",  GGML_TYPE_COUNT  , 0.05 },
+    { LLAMA_FTYPE_MOSTLY_PQ2_0,   "PQ2_0",   GGML_TYPE_COUNT , 0.9 },
     };
     for (const auto & c : cases) {
         test_ftype(src, dir + "/out-" + c.name + ".gguf", c.ftype, c.name, c.row_scaled, c.max_nmse);

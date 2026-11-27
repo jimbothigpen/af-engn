@@ -5603,6 +5603,7 @@ void ggml_compute_forward_get_rows(
         case GGML_TYPE_IQ1_BN:
 case GGML_TYPE_IQ2_BN:
         case GGML_TYPE_Q6_0:
+        case GGML_TYPE_PQ2_0:
         case GGML_TYPE_IQ4_K:
             {
                 ggml_compute_forward_get_rows_q(params, dst);

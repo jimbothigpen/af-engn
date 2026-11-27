@@ -1,0 +1,54 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+
+void compute_outputs(uint first_row, uint num_rows) {
+    uint a_offset, b_offset, d_offset;
+    get_offsets(a_offset, b_offset, d_offset);
+    const uint nb = p.ncols / 128u;
+    const uint row_bytes = nb * 34u;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint j16 = tid % 16u;
+
+    for (uint j = 0u; j < NUM_COLS; ++j) {
+        for (uint n = 0u; n < NUM_ROWS; ++n) {
+            temp[j][n] = FLOAT_TYPE(0);
+        }
+    }
+
+    for (uint i = tid / 16u; i < nb; i += gl_WorkGroupSize.x / 16u) {
+        for (uint n = 0u; n < num_rows; ++n) {
+            const uint block_offset = (a_offset / nb + first_row + n) * row_bytes + i * 34u;
+            const float d = unpackHalf2x16(uint(data_a[block_offset]) | (uint(data_a[block_offset + 1u]) << 8u)).x;
+            const uint q0 = uint(data_a[block_offset + 2u + j16 * 2u]);
+            const uint q1 = uint(data_a[block_offset + 2u + j16 * 2u + 1u]);
+
+            for (uint j = 0u; j < NUM_COLS; ++j) {
+                const uint base = j * p.batch_stride_b + b_offset + i * 128u + j16 * 8u;
+                FLOAT_TYPE acc = FLOAT_TYPE(0);
+                [[unroll]] for (uint k = 0u; k < 4u; ++k) {
+                    const uint code = (q0 >> (2u * k)) & 3u;
+                    acc = fma(FLOAT_TYPE(data_b[base + k]), FLOAT_TYPE(int(code) - 1), acc);
+                }
+                [[unroll]] for (uint k = 0u; k < 4u; ++k) {
+                    const uint code = (q1 >> (2u * k)) & 3u;
+                    acc = fma(FLOAT_TYPE(data_b[base + 4u + k]), FLOAT_TYPE(int(code) - 1), acc);
+                }
+                temp[j][n] = fma(FLOAT_TYPE(d), acc, temp[j][n]);
+            }
+        }
+    }
+    reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+    const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+    if (first_row >= p.stride_d) {
+        return;
+    }
+    compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

@@ -104,6 +104,7 @@ GGML_API void dequantize_row_iq2_kl(const block_iq2_kl * GGML_RESTRICT x, float 
 GGML_API void dequantize_row_iq1_bn(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq2_bn(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_q6_0(const block_q6_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_pq2_0(const block_pq2_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq4_kss(const block_iq4_kss * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq4_xs (const block_iq4_xs  * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_iq3_s  (const block_iq3_s   * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);

@@ -504,6 +504,14 @@ typedef struct {
 } block_q6_0;
 static_assert(sizeof(block_q6_0) == sizeof(ggml_half) + QK6_0/2 + QK6_0/4, "wrong q6_0 block size/padding");
 
+// Prism ternary: 128 weights per 34-byte block, codes {0,1,2,3} -> {-1,0,+1,+2}*d, no row prefix
+#define QK_PQ2_0 128
+typedef struct {
+    ggml_half d;               // delta
+    uint8_t qs[QK_PQ2_0 / 4]; // 2 bits per element, linear order
+} block_pq2_0;
+static_assert(sizeof(block_pq2_0) == sizeof(ggml_half) + QK_PQ2_0 / 4, "wrong pq2_0 block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

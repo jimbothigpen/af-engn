@@ -288,6 +288,20 @@ static __device__ __forceinline__ void dequantize_q6_0(const void * row, const i
     }
 }
 
+static __device__ __forceinline__ float pq2_0_value(const void * row, int64_t i) {
+    const block_pq2_0 * x = (const block_pq2_0 *) row + (i / QK_PQ2_0);
+    const int j = (int)(i % QK_PQ2_0);
+    const int q = (x->qs[j >> 2] >> ((j & 3) * 2)) & 3;
+    return (float)(q - 1) * __half2float(x->d);
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_pq2_0(const void * row, const int64_t ib, dst_t * y, const int tid) {
+    for (int j = tid; j < QK_PQ2_0; j += 32) {
+        y[j] = ggml_cuda_cast<dst_t>(pq2_0_value(row, ib*QK_PQ2_0 + j));
+    }
+}
+
 static __device__ __forceinline__ float iq3_ks_value(const void * row, int64_t i) {
 const block_iq3_ks & b = ((const block_iq3_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
 const int e = i % QK_K;
