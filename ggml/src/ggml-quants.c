@@ -2892,6 +2892,26 @@ void dequantize_row_iq2_bn(const void * GGML_RESTRICT vx, float * GGML_RESTRICT 
     }
 }
 
+void dequantize_row_q6_0(const block_q6_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    static const int qk = QK6_0;
+    assert(k % qk == 0);
+    const int64_t nb = k / qk;
+
+    for (int64_t i = 0; i < nb; i++) {
+        const float d = GGML_FP16_TO_FP32(x[i].d);
+
+        for (int j = 0; j < qk / 2; ++j) {
+            const uint8_t h = x[i].qh[j % (qk / 4)] >> (4 * (j / (qk / 4)));
+
+            const int32_t x0 = ((x[i].qs[j] & 0x0F) | ((h << 4) & 0x30)) - 32;
+            const int32_t x1 = ((x[i].qs[j] >>   4) | ((h << 2) & 0x30)) - 32;
+
+            y[i * qk + j + 0     ] = x0 * d;
+            y[i * qk + j + qk / 2] = x1 * d;
+        }
+    }
+}
+
 void dequantize_row_iq3_ks(const block_iq3_ks * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
@@ -6529,6 +6549,10 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
         case GGML_TYPE_IQ6_K:
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_iq6_k, data, nb);
+            } break;
+        case GGML_TYPE_Q6_0:
+            {
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_q6_0, data, nb);
             } break;
 
         case GGML_TYPE_I8:

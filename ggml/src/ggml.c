@@ -17,6 +17,7 @@
 #include "ggml-iq2-kl-encoder.h"
 #include "ggml-iq1-bn-encoder.h"
 #include "ggml-iq2-bn-encoder.h"
+#include "ggml-q6-0-encoder.h"
 
 #ifdef GGML_USE_CPU_HBM
 #include <hbwmalloc.h>
@@ -1033,6 +1034,14 @@ static const struct ggml_type_traits type_traits[GGML_TYPE_COUNT] = {
 .to_float                 = (ggml_to_float_t) dequantize_row_iq2_bn,
 .from_float_ref           = quantize_row_iq2_bn_ref,
 },
+    [GGML_TYPE_Q6_0] = {
+        .type_name                = "q6_0",
+        .blck_size                = QK6_0,
+        .type_size                = sizeof(block_q6_0),
+        .is_quantized             = true,
+        .to_float                 = (ggml_to_float_t) dequantize_row_q6_0,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q6_0_ref,
+    },
 [GGML_TYPE_IQ4_NL] = {
         .type_name                = "iq4_nl",
         .blck_size                = QK4_NL,
@@ -8392,6 +8401,7 @@ case GGML_TYPE_IQ3_KT:  result = ggml_quantize_iq3_kt_scalar(src + start, (char 
         case GGML_TYPE_IQ2_KL:  result = ggml_quantize_iq2_kl_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_IQ1_BN:  result = ggml_quantize_iq1_bn_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
 case GGML_TYPE_IQ2_BN:  result = ggml_quantize_iq2_bn_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_Q6_0:    result = ggml_quantize_q6_0_scalar(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
 case GGML_TYPE_F16:
             {
                 size_t elemsize = sizeof(ggml_fp16_t);

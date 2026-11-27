@@ -1,0 +1,48 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+
+void compute_outputs(uint first_row, uint num_rows) {
+    uint a_offset, b_offset, d_offset;
+    get_offsets(a_offset, b_offset, d_offset);
+    const uint nb = p.ncols / 32u;
+    const uint row_bytes = nb * 26u;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint j16 = tid % 16u;
+
+    for (uint j = 0u; j < NUM_COLS; ++j) {
+        for (uint n = 0u; n < NUM_ROWS; ++n) {
+            temp[j][n] = FLOAT_TYPE(0);
+        }
+    }
+
+    for (uint i = tid / 16u; i < nb; i += gl_WorkGroupSize.x / 16u) {
+        for (uint n = 0u; n < num_rows; ++n) {
+            const uint block_offset = (a_offset / nb + first_row + n) * row_bytes + i * 26u;
+            const float d = unpackHalf2x16(uint(data_a[block_offset]) | (uint(data_a[block_offset + 1u]) << 8u)).x;
+            const uint qs = uint(data_a[block_offset + 10u + j16]);
+            const uint h  = uint(data_a[block_offset + 2u + (j16 & 7u)]) >> (4u * (j16 >> 3u));
+            const float v0 = d * float(int((qs & 0x0Fu) | ((h << 4u) & 0x30u)) - 32);
+            const float v1 = d * float(int((qs >> 4u)   | ((h << 2u) & 0x30u)) - 32);
+
+            for (uint j = 0u; j < NUM_COLS; ++j) {
+                const uint base = j * p.batch_stride_b + b_offset + i * 32u + j16;
+                temp[j][n] = fma(FLOAT_TYPE(data_b[base]),        FLOAT_TYPE(v0), temp[j][n]);
+                temp[j][n] = fma(FLOAT_TYPE(data_b[base + 16u]),  FLOAT_TYPE(v1), temp[j][n]);
+            }
+        }
+    }
+    reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+    const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+    if (first_row >= p.stride_d) {
+        return;
+    }
+    compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

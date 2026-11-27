@@ -495,6 +495,15 @@ typedef struct {
 } block_iq2_bn;
 static_assert(sizeof(block_iq2_bn) == QK_IQ2BN/4, "wrong iq2_bn block size/padding");
 
+// 6-bit symmetric-offset legacy quantization: 32 weights per 26-byte block, no row prefix
+#define QK6_0 32
+typedef struct {
+    ggml_half d;         // delta
+    uint8_t qh[QK6_0/4]; // 5+6-th bit of quants
+    uint8_t qs[QK6_0/2]; // nibbles / quants
+} block_q6_0;
+static_assert(sizeof(block_q6_0) == sizeof(ggml_half) + QK6_0/2 + QK6_0/4, "wrong q6_0 block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

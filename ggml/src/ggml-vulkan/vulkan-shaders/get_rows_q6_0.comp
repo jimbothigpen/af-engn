@@ -1,0 +1,38 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "types.glsl"
+#include "generic_binary_head.glsl"
+
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    const uint col = gl_GlobalInvocationID.x;
+    if (col >= p.ne00) {
+        return;
+    }
+
+    const uint ib = col / 32u;
+    const uint in_blk = col % 32u;
+    const uint j  = in_blk & 15u;
+    const uint hi = in_blk >> 4u;
+
+    for (uint z = gl_GlobalInvocationID.z; z < p.ne11 * p.ne12; z += gl_NumWorkGroups.z) {
+        for (uint y = gl_GlobalInvocationID.y; y < p.ne10; y += gl_NumWorkGroups.y) {
+            const uint i11 = z / p.ne12;
+            const uint i12 = z % p.ne12;
+            const uint row = uint(data_b[get_boffset() + y * p.nb10 + i11 * p.nb11 + i12 * p.nb12]);
+            const uint block_offset = get_aoffset() + row * p.nb01 + i11 * p.nb02 + i12 * p.nb03 + ib * 26u;
+            const float d = unpackHalf2x16(uint(data_a[block_offset]) | (uint(data_a[block_offset + 1u]) << 8u)).x;
+            const uint qs = uint(data_a[block_offset + 10u + j]);
+            const uint h  = uint(data_a[block_offset + 2u + (j & 7u)]) >> (4u * (j >> 3u));
+            const uint q  = (hi != 0u) ? ((qs >> 4u) | ((h << 2u) & 0x30u))
+                                       : ((qs & 0x0Fu) | ((h << 4u) & 0x30u));
+            const float val = d * float(int(q) - 32);
+
+            const uint dst = get_doffset() + y * p.nb21 + i11 * p.nb22 + i12 * p.nb23 + col;
+            data_d[dst] = D_TYPE(val);
+        }
+    }
+}

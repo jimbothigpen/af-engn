@@ -2050,6 +2050,31 @@ uint32_t qs[4];
 #define A_TYPE_PACKED32 uint32_t
 #endif
 
+#define QUANT_K_Q6_0 32
+#define QUANT_R_Q6_0 1
+
+struct block_q6_0
+{
+    float16_t d;
+    uint8_t qh[8];
+    uint8_t qs[16];
+};
+
+struct block_q6_0_packed16
+{
+    float16_t d;
+    uint16_t qh[4];
+    uint16_t qs[8];
+};
+
+#if defined(DATA_A_Q6_0)
+#define QUANT_K QUANT_K_Q6_0
+#define QUANT_R QUANT_R_Q6_0
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ4_KS 256
 #define QUANT_R_IQ4_KS 1
 

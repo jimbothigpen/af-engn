@@ -1,0 +1,30 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ib = gl_WorkGroupID.x * 256 + tid;
+    if (ib >= p.nel / QUANT_K) {
+        return;
+    }
+
+    const uint block_offset = ib * 26u;
+    const float d = unpackHalf2x16(uint(data_a_bytes[block_offset]) | (uint(data_a_bytes[block_offset + 1u]) << 8u)).x;
+
+    for (uint j = 0u; j < 16u; ++j) {
+        const uint qs = uint(data_a_bytes[block_offset + 10u + j]);
+        const uint h  = uint(data_a_bytes[block_offset + 2u + (j & 7u)]) >> (4u * (j >> 3u));
+        const uint q0 = (qs & 0x0Fu) | ((h << 4u) & 0x30u);
+        const uint q1 = (qs >> 4u)   | ((h << 2u) & 0x30u);
+        data_b[QUANT_K * ib + j]        = D_TYPE(d * float(int(q0) - 32));
+        data_b[QUANT_K * ib + j + 16u]  = D_TYPE(d * float(int(q1) - 32));
+    }
+}
