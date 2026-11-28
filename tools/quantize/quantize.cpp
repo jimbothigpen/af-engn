@@ -79,6 +79,7 @@ static const std::vector<quant_option> QUANT_OPTIONS = {
     { "Q6_0", LLAMA_FTYPE_MOSTLY_Q6_0, " 6.50 bpw quantization", },
     { "PQ2_0", LLAMA_FTYPE_MOSTLY_PQ2_0, " 2.125 bpw ternary quantization (group 128, Prism)", },
     { "PTQ1_0", LLAMA_FTYPE_MOSTLY_PTQ1_0, " 1.75 bpw ternary base-3 quantization (Prism)", },
+    { "TQK6", LLAMA_FTYPE_MOSTLY_TQK6, " 1.625 bpw trellis quantization (group 128)", },
     { "IQ3_KS", LLAMA_FTYPE_MOSTLY_IQ3_KS, " 3.19 bpw non-linear quantization plus row scale", },
     { "IQ2_K",    LLAMA_FTYPE_MOSTLY_IQ2_K,    " 2.38 bpw non-linear quantization", },
     { "IQ3_K",    LLAMA_FTYPE_MOSTLY_IQ3_K,    " 3.43 bpw non-linear quantization", },

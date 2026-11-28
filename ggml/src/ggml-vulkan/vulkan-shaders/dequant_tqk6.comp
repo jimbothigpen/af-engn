@@ -1,0 +1,38 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "dequant_head.glsl"
+#include "tqk6_lut.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer A { uint8_t data_a_bytes[]; };
+layout(binding = 1) writeonly buffer D { D_TYPE data_b[]; };
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ib = gl_WorkGroupID.x * 256 + tid;
+    if (ib >= p.nel / QUANT_K) {
+        return;
+    }
+
+    const uint block_offset = ib * 26u;
+    const float d = unpackHalf2x16(uint(data_a_bytes[block_offset]) | (uint(data_a_bytes[block_offset + 1u]) << 8u)).x;
+    const uint out_base = QUANT_K * ib;
+
+    for (uint t = 0u; t < 32u; ++t) {
+        const uint off = (31u - t) * 6u;
+        const uint i0 = off >> 3u;
+        const uint w = uint(data_a_bytes[block_offset + 2u + i0]) |
+                       (uint(data_a_bytes[block_offset + 2u + (i0 + 1u) % 24u]) << 8u) |
+                       (uint(data_a_bytes[block_offset + 2u + (i0 + 2u) % 24u]) << 16u);
+        const uint s = (w >> (off & 7u)) & 0xffffu;
+        const vec2 v0 = tqk6_pair(s, 0u);
+        const vec2 v1 = tqk6_pair(s, 1u);
+        data_b[out_base + 4u * t + 0u] = D_TYPE(d * v0.x);
+        data_b[out_base + 4u * t + 1u] = D_TYPE(d * v0.y);
+        data_b[out_base + 4u * t + 2u] = D_TYPE(d * v1.x);
+        data_b[out_base + 4u * t + 3u] = D_TYPE(d * v1.y);
+    }
+}

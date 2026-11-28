@@ -233,6 +233,9 @@ ggml-pq2-0-encoder.cpp
 ggml-pq2-0-encoder.h
 ggml-ptq1-0-encoder.cpp
 ggml-ptq1-0-encoder.h
+ggml-tqk6-encoder.cpp
+ggml-tqk6-encoder.h
+ggml-tqk6-lut.h
 ggml-iq4-kss-encoder.h
             ggml-iq3-k-encoder.cpp
             ggml-iq3-k-encoder.h

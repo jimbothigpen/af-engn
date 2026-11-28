@@ -628,6 +628,17 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
         return nullptr;
     }
 
+    const int trellis_state_bits_idx = gguf_find_key(ctx, "agention.trellis.state_bits");
+    const bool trellis_state_bits = trellis_state_bits_idx != -1;
+    if (trellis_state_bits &&
+        (ctx->kv[trellis_state_bits_idx].is_array ||
+         gguf_get_kv_type(ctx, trellis_state_bits_idx) != GGUF_TYPE_UINT32 ||
+         gguf_get_val_u32(ctx, trellis_state_bits_idx) != 15)) {
+        GGML_LOG_ERROR("%s: unsupported agention.trellis.state_bits; expected UINT32 15\n", __func__);
+        gguf_free(ctx);
+        return nullptr;
+    }
+
     // read the tensor info
     std::unordered_set<std::string> seen_tensor_names;
 
@@ -759,6 +770,10 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
             info.t.type = GGML_TYPE_PQ2_0;
         } else if (wire_type == 1043) {
             info.t.type = GGML_TYPE_PTQ1_0;
+        } else if (wire_type == 1044) {
+            info.t.type = GGML_TYPE_TQK6;
+        } else if (wire_type == 145 && trellis_state_bits) {
+            info.t.type = GGML_TYPE_TQK6;
         } else if (wire_type == 1033) {
                 info.t.type = GGML_TYPE_IQ5_KS;
             } else if (wire_type < 44 && wire_type != 4 && wire_type != 5 &&
@@ -1608,6 +1623,7 @@ struct gguf_writer_base {
                                    info.t.type == GGML_TYPE_Q6_0 ? 1041 :
                                    info.t.type == GGML_TYPE_PQ2_0 ? 1042 :
                                    info.t.type == GGML_TYPE_PTQ1_0 ? 1043 :
+                                   info.t.type == GGML_TYPE_TQK6 ? 1044 :
                                    static_cast<uint32_t>(info.t.type);
         write(wire_type);
         write(info.offset);
@@ -1742,7 +1758,8 @@ info.t.type == GGML_TYPE_IQ4_KSS || info.t.type == GGML_TYPE_IQ5_KS ||
             info.t.type == GGML_TYPE_IQ2_BN ||
         info.t.type == GGML_TYPE_Q6_0 ||
         info.t.type == GGML_TYPE_PQ2_0 ||
-        info.t.type == GGML_TYPE_PTQ1_0) {
+        info.t.type == GGML_TYPE_PTQ1_0 ||
+        info.t.type == GGML_TYPE_TQK6) {
             has_custom = true;
         } else if (info.t.type < 0 || info.t.type >= GGML_TYPE_COUNT || ggml_type_size(info.t.type) == 0) {
             throw std::runtime_error("unsupported runtime tensor type");

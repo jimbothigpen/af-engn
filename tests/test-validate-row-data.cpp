@@ -32,6 +32,7 @@ static const ggml_type ROW_PLAIN[] = {
     GGML_TYPE_Q6_0,
     GGML_TYPE_PQ2_0,
     GGML_TYPE_PTQ1_0,
+GGML_TYPE_TQK6,
 };
 
 static void set_row_scale(std::vector<uint8_t> & buf, size_t row, size_t row_size, int64_t meta, uint32_t bits) {

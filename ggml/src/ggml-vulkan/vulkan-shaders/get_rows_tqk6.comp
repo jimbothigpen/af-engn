@@ -1,0 +1,42 @@
+#version 450
+
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "types.glsl"
+#include "generic_binary_head.glsl"
+#include "tqk6_lut.glsl"
+
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    const uint col = gl_GlobalInvocationID.x;
+    if (col >= p.ne00) {
+        return;
+    }
+
+    const uint ib = col / 128u;
+    const uint e = col % 128u;
+    const uint t = e >> 2u;
+    const uint m = e & 3u;
+    const uint off = (31u - t) * 6u;
+    const uint i0 = off >> 3u;
+
+    for (uint z = gl_GlobalInvocationID.z; z < p.ne11 * p.ne12; z += gl_NumWorkGroups.z) {
+        for (uint y = gl_GlobalInvocationID.y; y < p.ne10; y += gl_NumWorkGroups.y) {
+            const uint i11 = z / p.ne12;
+            const uint i12 = z % p.ne12;
+            const uint row = uint(data_b[get_boffset() + y * p.nb10 + i11 * p.nb11 + i12 * p.nb12]);
+            const uint block_offset = get_aoffset() + row * p.nb01 + i11 * p.nb02 + i12 * p.nb03 + ib * 26u;
+            const float d = unpackHalf2x16(uint(data_a[block_offset]) | (uint(data_a[block_offset + 1u]) << 8u)).x;
+            const uint w = uint(data_a[block_offset + 2u + i0]) |
+                           (uint(data_a[block_offset + 2u + (i0 + 1u) % 24u]) << 8u) |
+                           (uint(data_a[block_offset + 2u + (i0 + 2u) % 24u]) << 16u);
+            const uint s = (w >> (off & 7u)) & 0xffffu;
+            const vec2 v = tqk6_pair(s, m >> 1u);
+            const float val = d * ((m & 1u) == 0u ? v.x : v.y);
+
+            const uint dst = get_doffset() + y * p.nb21 + i11 * p.nb22 + i12 * p.nb23 + col;
+            data_d[dst] = D_TYPE(val);
+        }
+    }
+}

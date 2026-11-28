@@ -1,0 +1,73 @@
+#version 450
+
+#include "mul_mat_vec_base.glsl"
+#include "tqk6_lut.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+
+void compute_outputs(uint first_row, uint num_rows) {
+    uint a_offset, b_offset, d_offset;
+    get_offsets(a_offset, b_offset, d_offset);
+    const uint nb = p.ncols / 128u;
+    const uint row_bytes = nb * 26u;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint j16 = tid % 16u;
+
+    for (uint j = 0u; j < NUM_COLS; ++j) {
+        for (uint n = 0u; n < NUM_ROWS; ++n) {
+            temp[j][n] = FLOAT_TYPE(0);
+        }
+    }
+
+    for (uint i = tid / 16u; i < nb; i += gl_WorkGroupSize.x / 16u) {
+        for (uint n = 0u; n < num_rows; ++n) {
+            const uint block_offset = (a_offset / nb + first_row + n) * row_bytes + i * 26u;
+            const float d = unpackHalf2x16(uint(data_a[block_offset]) | (uint(data_a[block_offset + 1u]) << 8u)).x;
+
+            const uint t0 = 2u * j16;
+            const uint off0 = (31u - t0) * 6u;
+            const uint i0_0 = off0 >> 3u;
+            const uint w0 = uint(data_a[block_offset + 2u + i0_0]) |
+                            (uint(data_a[block_offset + 2u + (i0_0 + 1u) % 24u]) << 8u) |
+                            (uint(data_a[block_offset + 2u + (i0_0 + 2u) % 24u]) << 16u);
+            const uint s0 = (w0 >> (off0 & 7u)) & 0xffffu;
+            const vec2 v00 = tqk6_pair(s0, 0u);
+            const vec2 v01 = tqk6_pair(s0, 1u);
+
+            const uint t1 = t0 + 1u;
+            const uint off1 = (31u - t1) * 6u;
+            const uint i0_1 = off1 >> 3u;
+            const uint w1 = uint(data_a[block_offset + 2u + i0_1]) |
+                            (uint(data_a[block_offset + 2u + (i0_1 + 1u) % 24u]) << 8u) |
+                            (uint(data_a[block_offset + 2u + (i0_1 + 2u) % 24u]) << 16u);
+            const uint s1 = (w1 >> (off1 & 7u)) & 0xffffu;
+            const vec2 v10 = tqk6_pair(s1, 0u);
+            const vec2 v11 = tqk6_pair(s1, 1u);
+
+            for (uint j = 0u; j < NUM_COLS; ++j) {
+                const uint base = j * p.batch_stride_b + b_offset + i * 128u + 8u * j16;
+                FLOAT_TYPE acc = FLOAT_TYPE(0);
+                acc = fma(FLOAT_TYPE(data_b[base + 0u]), FLOAT_TYPE(v00.x), acc);
+                acc = fma(FLOAT_TYPE(data_b[base + 1u]), FLOAT_TYPE(v00.y), acc);
+                acc = fma(FLOAT_TYPE(data_b[base + 2u]), FLOAT_TYPE(v01.x), acc);
+                acc = fma(FLOAT_TYPE(data_b[base + 3u]), FLOAT_TYPE(v01.y), acc);
+                acc = fma(FLOAT_TYPE(data_b[base + 4u]), FLOAT_TYPE(v10.x), acc);
+                acc = fma(FLOAT_TYPE(data_b[base + 5u]), FLOAT_TYPE(v10.y), acc);
+                acc = fma(FLOAT_TYPE(data_b[base + 6u]), FLOAT_TYPE(v11.x), acc);
+                acc = fma(FLOAT_TYPE(data_b[base + 7u]), FLOAT_TYPE(v11.y), acc);
+                temp[j][n] = fma(FLOAT_TYPE(d), acc, temp[j][n]);
+            }
+        }
+    }
+    reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+    const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+    if (first_row >= p.stride_d) {
+        return;
+    }
+    compute_outputs(first_row, min(NUM_ROWS, p.stride_d - first_row));
+}

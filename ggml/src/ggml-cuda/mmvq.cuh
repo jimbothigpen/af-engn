@@ -55,5 +55,8 @@ const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
 void ggml_cuda_mul_mat_ptq1_0(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
 const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
 
+void ggml_cuda_mul_mat_tqk6(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
+const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+
 void ggml_cuda_mul_mat_iq2_bn(ggml_backend_cuda_context & ctx, const ggml_tensor * src0,
 const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);

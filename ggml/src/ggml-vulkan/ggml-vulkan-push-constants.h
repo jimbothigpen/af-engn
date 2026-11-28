@@ -11,7 +11,7 @@ uint32_t ggml_vk_concat_unit_size(ggml_type type);
 inline bool ggml_vk_is_byte_indexed_a(ggml_type type) {
     return type == GGML_TYPE_IQ2_KS || type == GGML_TYPE_IQ3_KS || type == GGML_TYPE_IQ4_KS ||
            type == GGML_TYPE_IQ4_KSS || type == GGML_TYPE_IQ1_KT || type == GGML_TYPE_IQ2_KT ||
-           type == GGML_TYPE_IQ3_KT || type == GGML_TYPE_IQ4_KT || type == GGML_TYPE_IQ2_KL || type == GGML_TYPE_IQ1_BN || type == GGML_TYPE_IQ2_BN || type == GGML_TYPE_Q6_0 || type == GGML_TYPE_PQ2_0 || type == GGML_TYPE_PTQ1_0 || type == GGML_TYPE_IQ5_KS;
+           type == GGML_TYPE_IQ3_KT || type == GGML_TYPE_IQ4_KT || type == GGML_TYPE_IQ2_KL || type == GGML_TYPE_IQ1_BN || type == GGML_TYPE_IQ2_BN || type == GGML_TYPE_Q6_0 || type == GGML_TYPE_PQ2_0 || type == GGML_TYPE_PTQ1_0 || type == GGML_TYPE_TQK6 || type == GGML_TYPE_IQ5_KS;
 }
 
 // Defined in ggml-vulkan.cpp; declared here so push-constant initializers can

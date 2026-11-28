@@ -331,6 +331,31 @@ static __device__ __forceinline__ void dequantize_ptq1_0(const void * row, const
     }
 }
 
+#define TQK6_LUT_QUALIFIER static __device__ __constant__ const
+#include "../ggml-tqk6-lut.h"
+#undef TQK6_LUT_QUALIFIER
+
+static __device__ __forceinline__ float tqk6_value(const void * row, int64_t i) {
+    const block_tqk6 * x = (const block_tqk6 *) row + (i / QK_TQK);
+    const uint32_t e = (uint32_t)(i % QK_TQK);
+    const uint32_t t = e >> 2;
+    const uint32_t m = e & 3u;
+    const uint32_t off = (31u - t) * 6u;
+    const uint32_t i0 = off >> 3;
+    const uint32_t w = (uint32_t)x->qs[i0] | ((uint32_t)x->qs[(i0 + 1u) % 24u] << 8) | ((uint32_t)x->qs[(i0 + 2u) % 24u] << 16);
+    const uint32_t s = (w >> (off & 7u)) & 0xffffu;
+    const uint32_t z = (s & 0x7fffu) * 0x9e3779b1u;
+    const uint32_t idx = m < 2u ? (z >> 21) : ((z >> 10) & 2047u);
+    return __half2float(x->d) * __half2float(__ushort_as_half(tqk6_lut_f16[2u*idx + (m & 1u)]));
+}
+
+template<typename dst_t>
+static __device__ __forceinline__ void dequantize_tqk6(const void * row, const int64_t ib, dst_t * y, const int tid) {
+    for (int j = tid; j < QK_TQK; j += 32) {
+        y[j] = ggml_cuda_cast<dst_t>(tqk6_value(row, ib*QK_TQK + j));
+    }
+}
+
 static __device__ __forceinline__ float iq3_ks_value(const void * row, int64_t i) {
 const block_iq3_ks & b = ((const block_iq3_ks *) ((const char *) row + sizeof(half)))[i / QK_K];
 const int e = i % QK_K;

@@ -2571,6 +2571,10 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
         ggml_cuda_mul_mat_ptq1_0(ctx, src0, src1, nullptr, dst);
         return;
     }
+    if (src0->type == GGML_TYPE_TQK6) {
+        ggml_cuda_mul_mat_tqk6(ctx, src0, src1, nullptr, dst);
+        return;
+    }
     if (src0->type == GGML_TYPE_IQ2_BN) {
         ggml_cuda_mul_mat_iq2_bn(ctx, src0, src1, nullptr, dst);
         return;
@@ -2742,6 +2746,10 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
     }
     if (src0->type == GGML_TYPE_PTQ1_0) {
         ggml_cuda_mul_mat_ptq1_0(ctx, src0, src1, ids, dst);
+        return;
+    }
+    if (src0->type == GGML_TYPE_TQK6) {
+        ggml_cuda_mul_mat_tqk6(ctx, src0, src1, ids, dst);
         return;
     }
     if (src0->type == GGML_TYPE_IQ2_BN) {
@@ -6560,6 +6568,14 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
         }
         if (op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) {
             return op->src[0]->ne[0] > 0 && op->src[0]->ne[0]%QK_PTQ1_0 == 0 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+        }
+    }
+    if (op->src[0] && op->src[0]->type == GGML_TYPE_TQK6) {
+        if (op->op == GGML_OP_GET_ROWS) {
+            return op->src[0]->ne[0] > 0 && op->src[0]->ne[0]%QK_TQK == 0;
+        }
+        if (op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) {
+            return op->src[0]->ne[0] > 0 && op->src[0]->ne[0]%QK_TQK == 0 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
         }
     }
     if (op->src[0] && op->src[0]->type == GGML_TYPE_IQ2_BN) {

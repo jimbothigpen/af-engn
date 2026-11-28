@@ -5,6 +5,7 @@
 #include "simd-mappings.h"
 #include "vec.h"
 #include "ggml-quants.h"
+#include "ggml-tqk6-lut.h"
 #include "quants.h"
 
 #include "arch-fallback.h"
@@ -767,6 +768,61 @@ void ggml_vec_dot_ptq1_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const v
 
     *s = sumf;
 }
+
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(__GNUC__)
+#pragma GCC push_options
+#pragma GCC optimize("fp-contract=off")
+#endif
+void ggml_vec_dot_tqk6_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    const int qk = QK_TQK;
+    const int nb = n / qk;
+
+    assert(n % qk == 0);
+    assert(nrc == 1);
+    UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
+
+    const block_tqk6 * GGML_RESTRICT x = (const block_tqk6 *)vx;
+    const block_q8_0 * GGML_RESTRICT y = (const block_q8_0 *)vy;
+
+    float sumf = 0.0f;
+
+    for (int i = 0; i < nb; ++i) {
+        const float d = GGML_FP16_TO_FP32(x[i].d);
+        const uint8_t * GGML_RESTRICT qs = x[i].qs;
+        float sumb = 0.0f;
+        for (int k = 0; k < QK_TQK / QK8_0; ++k) {
+            const block_q8_0 * GGML_RESTRICT yb = &y[i * (QK_TQK / QK8_0) + k];
+            float dot = 0.0f;
+            for (int t = 8 * k; t < 8 * k + 8; ++t) {
+                const uint32_t off = (uint32_t)(31 - t) * 6u;
+                const uint32_t i0  = off >> 3;
+                const uint32_t i1  = (i0 + 1) % 24;
+                const uint32_t i2  = (i0 + 2) % 24;
+                const uint32_t w   = (uint32_t)qs[i0] | ((uint32_t)qs[i1] << 8) | ((uint32_t)qs[i2] << 16);
+                const uint32_t st  = (w >> (off & 7)) & 0x7fffu;
+                const uint32_t z   = st * 0x9e3779b1u;
+                const uint32_t idx0 = z >> 21;
+                const uint32_t idx1 = (z >> 10) & 2047u;
+                const int8_t * GGML_RESTRICT q = yb->qs + 4 * (t - 8 * k);
+                dot += GGML_FP16_TO_FP32(tqk6_lut_f16[2 * idx0 + 0]) * q[0];
+                dot += GGML_FP16_TO_FP32(tqk6_lut_f16[2 * idx0 + 1]) * q[1];
+                dot += GGML_FP16_TO_FP32(tqk6_lut_f16[2 * idx1 + 0]) * q[2];
+                dot += GGML_FP16_TO_FP32(tqk6_lut_f16[2 * idx1 + 1]) * q[3];
+            }
+            sumb += GGML_FP16_TO_FP32(yb->d) * dot;
+        }
+        sumf += d * sumb;
+    }
+
+    *s = sumf;
+}
+#if defined(__clang__)
+#pragma clang fp contract(on)
+#elif defined(__GNUC__)
+#pragma GCC pop_options
+#endif
 
 void ggml_vec_dot_iq3_kt_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0 && nrc == 1);

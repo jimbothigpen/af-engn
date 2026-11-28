@@ -2116,6 +2116,23 @@ struct block_ptq1_0
 #define A_TYPE_PACKED32 uint32_t
 #endif
 
+#define QUANT_K_TQK6 128
+#define QUANT_R_TQK6 1
+
+struct block_tqk6
+{
+    float16_t d;
+    uint8_t qs[24];
+};
+
+#if defined(DATA_A_TQK6)
+#define QUANT_K QUANT_K_TQK6
+#define QUANT_R QUANT_R_TQK6
+#define A_TYPE uint8_t
+#define A_TYPE_PACKED16 uint16_t
+#define A_TYPE_PACKED32 uint32_t
+#endif
+
 #define QUANT_K_IQ4_KS 256
 #define QUANT_R_IQ4_KS 1
 

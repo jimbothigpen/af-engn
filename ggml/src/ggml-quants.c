@@ -2,6 +2,7 @@
 #include "ggml-common.h"
 
 #include "ggml-quants.h"
+#include "ggml-tqk6-lut.h"
 #include "ggml-impl.h"
 #include "ggml-cpu/ggml-cpu-impl.h"
 #include "ggml-cpu.h"
@@ -2498,6 +2499,31 @@ void dequantize_row_tq2_0(const block_tq2_0 * GGML_RESTRICT x, float * GGML_REST
             }
         }
     }
+}
+
+void dequantize_row_tqk6(const block_tqk6 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+assert(k % QK_TQK == 0);
+
+const int64_t nb = k / QK_TQK;
+for (int64_t i = 0; i < nb; ++i) {
+const float d = GGML_FP16_TO_FP32(x[i].d);
+for (int t = 0; t < QK_TQK/4; ++t) {
+const uint32_t off = (uint32_t) (31 - t) * 6u;
+const uint32_t i0 = off >> 3;
+const uint32_t i1 = (i0 + 1) % 24;
+const uint32_t i2 = (i0 + 2) % 24;
+const uint32_t w = (uint32_t) x[i].qs[i0] | ((uint32_t) x[i].qs[i1] << 8) | ((uint32_t) x[i].qs[i2] << 16);
+const uint32_t s = (w >> (off & 7)) & 0xffffu;
+const uint32_t z = (s & 0x7fffu) * 0x9e3779b1u;
+const uint32_t idx0 = z >> 21;
+const uint32_t idx1 = (z >> 10) & 2047u;
+y[4*t + 0] = d * GGML_FP16_TO_FP32(tqk6_lut_f16[2*idx0 + 0]);
+y[4*t + 1] = d * GGML_FP16_TO_FP32(tqk6_lut_f16[2*idx0 + 1]);
+y[4*t + 2] = d * GGML_FP16_TO_FP32(tqk6_lut_f16[2*idx1 + 0]);
+y[4*t + 3] = d * GGML_FP16_TO_FP32(tqk6_lut_f16[2*idx1 + 1]);
+}
+y += QK_TQK;
+}
 }
 
 // ====================== "True" 2-bit (de)-quantization
@@ -6609,6 +6635,11 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_ptq1_0, data, nb);
             } break;
+
+        case GGML_TYPE_TQK6:
+        {
+            VALIDATE_ROW_DATA_D_F16_IMPL(block_tqk6, data, nb);
+        } break;
 
         case GGML_TYPE_I8:
         case GGML_TYPE_I16:
